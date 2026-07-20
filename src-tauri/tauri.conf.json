@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Pluely",
+  "productName": "Veil",
   "version": "0.1.9",
-  "identifier": "com.srikanthnani.pluely",
+  "identifier": "com.aditajpatil.veil",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "macOSPrivateApi": true,
     "windows": [
       {
-        "title": "Pluely - AI Assistant",
+        "title": "Veil - AI Overlay",
         "width": 600,
         "height": 54,
         "decorations": false,
@@ -34,7 +34,7 @@
   },
   "bundle": {
     "active": true,
-    "createUpdaterArtifacts": true,
+    "createUpdaterArtifacts": false,
     "targets": "all",
     "icon": [
       "icons/32x32.png",
@@ -48,10 +48,10 @@
   },
   "plugins": {
     "sql": {
-      "preload": ["sqlite:pluely.db"]
+      "preload": ["sqlite:veil.db"]
     },
     "updater": {
-      "endpoints": ["https://pluely.com/api/update"],
+      "endpoints": [],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY2RDJBNUFFM0ZCREEyQjEKUldTeG9yMC9ycVhTWmlBRkovV2N5L3RudDhTTHFzM3QxSkF0R0doRGtvSUJKWktpdGp4cWRhcmcK",
       "windows": {
         "installMode": "passive"
