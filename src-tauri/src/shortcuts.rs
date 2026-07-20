@@ -36,8 +36,9 @@ pub struct LicenseState {
 
 impl Default for LicenseState {
     fn default() -> Self {
+        // Personal fork: unlock Pro shortcuts (move window, etc.)
         LicenseState {
-            has_active_license: AtomicBool::new(false),
+            has_active_license: AtomicBool::new(true),
         }
     }
 }
