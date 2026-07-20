@@ -39,6 +39,25 @@ const Audio = () => {
     >
       <AudioSelection />
 
+      <div className="text-xs text-muted-foreground bg-muted/40 p-3 rounded-md mb-4 space-y-1">
+        <p>
+          <strong>Voice tip:</strong> Hold{" "}
+          <span className="font-medium text-foreground">
+            {getPlatform() === "macos" ? "⌘+Shift+A" : "Ctrl+Space"}
+          </span>{" "}
+          for push-to-talk voice input (default shortcut for Voice Input). You
+          can change it under Cursor & Shortcuts. On macOS the default is{" "}
+          <span className="font-medium text-foreground">⌘+Shift+A</span> because{" "}
+          <span className="font-medium text-foreground">⌘+Space</span> is
+          Spotlight.
+        </p>
+        <p>
+          If you still have the previous default, use{" "}
+          <span className="font-medium text-foreground">Ctrl+Shift+A</span>{" "}
+          (Windows/Linux) until you reset shortcuts.
+        </p>
+      </div>
+
       <div className="text-xs text-amber-600 bg-amber-500/10 p-3 rounded-md mb-4 space-y-2">
         <p>
           <strong>⚠️ If selected devices don't work:</strong> Please verify your
@@ -50,7 +69,7 @@ const Audio = () => {
         </p>
         <p className="text-amber-600/80">
           <strong>Note:</strong> If the selected device fails or is unavailable,
-          Pluely will automatically fall back to your system's default audio
+          Veil will automatically fall back to your system's default audio
           devices.
         </p>
       </div>

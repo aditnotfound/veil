@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useWindowResize } from "./useWindow";
 import { useGlobalShortcuts } from "@/hooks";
-import { MAX_FILES } from "@/config";
+import { MAX_FILES, STORAGE_KEYS } from "@/config";
 import { useApp } from "@/contexts";
 import {
   fetchAIResponse,
@@ -14,6 +14,9 @@ import {
   generateMessageId,
   generateRequestId,
   getResponseSettings,
+  safeLocalStorage,
+  getIntervalMonitorConfig,
+  INTERVAL_MONITOR_CHANGED_EVENT,
 } from "@/lib";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -82,6 +85,10 @@ export const useCompletion = () => {
   const screenshotConfigRef = useRef(screenshotConfiguration);
   const hasCheckedPermissionRef = useRef(false);
   const screenshotInitiatedByThisContext = useRef(false);
+  const isLoadingRef = useRef(false);
+  const handleScreenshotSubmitRef = useRef<
+    ((base64: string, prompt?: string) => Promise<void>) | null
+  >(null);
 
   const { resizeWindow } = useWindowResize();
 
@@ -175,6 +182,24 @@ export const useCompletion = () => {
               imagesBase64.push(file.base64);
             }
           });
+        }
+
+        // Optionally capture a screenshot for every message
+        const useImageEveryMessage =
+          safeLocalStorage.getItem(STORAGE_KEYS.USE_IMAGE_EVERY_MESSAGE) ===
+          "true";
+        if (useImageEveryMessage) {
+          try {
+            const captured = await invoke<string>("capture_to_base64");
+            if (captured) {
+              imagesBase64.push(captured);
+            }
+          } catch (captureError) {
+            console.error(
+              "Failed to capture screenshot for message:",
+              captureError
+            );
+          }
         }
 
         let fullResponse = "";
@@ -1003,6 +1028,51 @@ export const useCompletion = () => {
     captureScreenshot,
     inputRef,
   ]);
+
+  // Interval screen monitor: capture + auto-submit on a timer
+  useEffect(() => {
+    isLoadingRef.current = state.isLoading;
+  }, [state.isLoading]);
+  useEffect(() => {
+    handleScreenshotSubmitRef.current = handleScreenshotSubmit;
+  }, [handleScreenshotSubmit]);
+
+  useEffect(() => {
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const clear = () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    const start = () => {
+      clear();
+      const config = getIntervalMonitorConfig();
+      if (!config.enabled) return;
+
+      intervalId = setInterval(async () => {
+        const latest = getIntervalMonitorConfig();
+        if (!latest.enabled || isLoadingRef.current) return;
+        try {
+          const base64 = await invoke<string>("capture_to_base64");
+          if (!base64 || isLoadingRef.current) return;
+          await handleScreenshotSubmitRef.current?.(base64, latest.prompt);
+        } catch (error) {
+          console.error("Interval monitor capture failed:", error);
+        }
+      }, config.intervalMs);
+    };
+
+    start();
+    window.addEventListener(INTERVAL_MONITOR_CHANGED_EVENT, start);
+
+    return () => {
+      clear();
+      window.removeEventListener(INTERVAL_MONITOR_CHANGED_EVENT, start);
+    };
+  }, []);
 
   return {
     input: state.input,

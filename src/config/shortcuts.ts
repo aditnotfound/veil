@@ -54,11 +54,13 @@ export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
   {
     id: "audio_recording",
     name: "Voice Input",
-    description: "Start voice recording",
+    description: "Start voice recording (push-to-talk)",
     defaultKey: {
+      // cmd+space is Spotlight on macOS — keep cmd+shift+a there
       macos: "cmd+shift+a",
-      windows: "ctrl+shift+a",
-      linux: "ctrl+shift+a",
+      // ctrl+space is free in defaults (no other action uses it)
+      windows: "ctrl+space",
+      linux: "ctrl+space",
     },
   },
   {

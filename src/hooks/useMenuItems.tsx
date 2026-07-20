@@ -13,6 +13,9 @@ import {
   GlobeIcon,
   BugIcon,
   MessageSquareTextIcon,
+  Brain,
+  CalendarDays,
+  StickyNote,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useApp } from "@/contexts";
@@ -38,9 +41,24 @@ export const useMenuItems = () => {
       href: "/chats",
     },
     {
+      icon: CalendarDays,
+      label: "Meetings",
+      href: "/meetings",
+    },
+    {
+      icon: StickyNote,
+      label: "Notes",
+      href: "/notes",
+    },
+    {
       icon: WandSparkles,
       label: "System prompts",
       href: "/system-prompts",
+    },
+    {
+      icon: Brain,
+      label: "Knowledge",
+      href: "/knowledge",
     },
     {
       icon: Settings,
@@ -92,7 +110,7 @@ export const useMenuItems = () => {
     },
     {
       icon: PowerIcon,
-      label: "Quit pluely",
+      label: "Quit Veil",
       action: async () => {
         await invoke("exit_app");
       },

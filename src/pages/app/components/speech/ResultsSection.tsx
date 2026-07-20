@@ -56,10 +56,17 @@ export const ResultsSection = ({
       {/* RESPONSE MODE: System as text, then AI response */}
       {!conversationMode && (
         <div className="space-y-2">
-          {/* System Input - Just text with bold label */}
+          {/* System / Mic labeled transcription (prefix already in state) */}
           {lastTranscription && (
             <p className="text-[11px] text-muted-foreground">
-              <span className="font-semibold">System:</span> {lastTranscription}
+              {/^(System|Mic):\s*/i.test(lastTranscription) ? (
+                lastTranscription
+              ) : (
+                <>
+                  <span className="font-semibold">System:</span>{" "}
+                  {lastTranscription}
+                </>
+              )}
             </p>
           )}
 
@@ -116,16 +123,18 @@ export const ResultsSection = ({
             </div>
           )}
 
-          {/* System Input - Second */}
+          {/* System / Mic Input - Second */}
           {lastTranscription && (
             <div className="rounded-md border-l-2 border-primary/50 bg-primary/5 p-2.5">
               <div className="flex items-center gap-1.5 mb-1">
                 <HeadphonesIcon className="h-3 w-3 text-primary" />
                 <span className="text-[9px] font-medium text-primary uppercase tracking-wide">
-                  System
+                  {/^Mic:/i.test(lastTranscription) ? "Mic" : "System"}
                 </span>
               </div>
-              <p className="text-sm">{lastTranscription}</p>
+              <p className="text-sm">
+                {lastTranscription.replace(/^(System|Mic):\s*/i, "")}
+              </p>
             </div>
           )}
 

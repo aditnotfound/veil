@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Label,
   Input,
@@ -6,8 +7,15 @@ import {
   SelectItem,
   SelectTrigger,
   Header,
+  Switch,
 } from "@/components";
 import { UseSettingsReturn } from "@/types";
+import {
+  INTERVAL_MONITOR_OPTIONS,
+  getIntervalMonitorConfig,
+  setIntervalMonitorConfig,
+  type IntervalMonitorConfig,
+} from "@/lib";
 import { LaptopMinimalIcon, MousePointer2Icon } from "lucide-react";
 
 export const ScreenshotConfigs = ({
@@ -17,6 +25,16 @@ export const ScreenshotConfigs = ({
   handleScreenshotEnabledChange,
   hasActiveLicense,
 }: UseSettingsReturn) => {
+  const [intervalMonitor, setIntervalMonitor] = useState<IntervalMonitorConfig>(
+    () => getIntervalMonitorConfig()
+  );
+
+  const updateIntervalMonitor = (patch: Partial<IntervalMonitorConfig>) => {
+    const next = { ...intervalMonitor, ...patch };
+    setIntervalMonitor(next);
+    setIntervalMonitorConfig(next);
+  };
+
   return (
     <div id="screenshot" className="space-y-3">
       <div className="space-y-3">
@@ -122,6 +140,66 @@ export const ScreenshotConfigs = ({
             </p>
           </div>
         )}
+
+        {/* Interval screen monitor */}
+        <div className="space-y-3 pt-2 border-t border-border/50">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-col">
+              <Header
+                title="Interval screen monitor"
+                description="Periodically capture the screen and send it to AI with your prompt. Skips while a response is loading."
+              />
+            </div>
+            <Switch
+              checked={intervalMonitor.enabled}
+              onCheckedChange={(checked) =>
+                updateIntervalMonitor({ enabled: checked })
+              }
+              title="Toggle interval screen monitor"
+              aria-label="Toggle interval screen monitor"
+            />
+          </div>
+
+          {intervalMonitor.enabled && (
+            <>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Interval</Label>
+                <Select
+                  value={String(intervalMonitor.intervalMs)}
+                  onValueChange={(value) =>
+                    updateIntervalMonitor({ intervalMs: Number(value) })
+                  }
+                >
+                  <SelectTrigger className="w-full h-11 border-1 border-input/50 focus:border-primary/50 transition-colors">
+                    <div className="text-sm font-medium">
+                      {INTERVAL_MONITOR_OPTIONS.find(
+                        (o) => o.value === intervalMonitor.intervalMs
+                      )?.label || "30 seconds"}
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {INTERVAL_MONITOR_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={String(option.value)}>
+                        <div className="font-medium">{option.label}</div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Monitor prompt</Label>
+                <Input
+                  placeholder="Prompt used for each interval capture..."
+                  value={intervalMonitor.prompt}
+                  onChange={(e) =>
+                    updateIntervalMonitor({ prompt: e.target.value })
+                  }
+                  className="w-full h-11 border-1 border-input/50 focus:border-primary/50 transition-colors"
+                />
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Tips */}

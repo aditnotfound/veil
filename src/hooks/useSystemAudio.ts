@@ -65,6 +65,40 @@ export interface ChatConversation {
 
 export type useSystemAudioType = ReturnType<typeof useSystemAudio>;
 
+export type AutoResponseMode = "off" | "on_question" | "after_pause";
+export type AutoResponsePace = "fast" | "balanced" | "relaxed";
+
+const AUTO_RESPONSE_PACE_MS: Record<AutoResponsePace, number> = {
+  fast: 400,
+  balanced: 1200,
+  relaxed: 2500,
+};
+
+const QUESTION_START_RE =
+  /^(who|what|when|where|why|how|can|could|would|should|tell|explain|walk me|describe)\b/i;
+
+export function looksLikeQuestion(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (trimmed.includes("?")) return true;
+  return QUESTION_START_RE.test(trimmed);
+}
+
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const timer = setTimeout(resolve, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 export function useSystemAudio() {
   const { resizeWindow } = useWindowResize();
   const globalShortcuts = useGlobalShortcuts();
@@ -85,6 +119,10 @@ export function useSystemAudio() {
   const [isContinuousMode, setIsContinuousMode] = useState<boolean>(false);
   const [isRecordingInContinuousMode, setIsRecordingInContinuousMode] =
     useState<boolean>(false);
+  const [autoResponseMode, setAutoResponseModeState] =
+    useState<AutoResponseMode>("after_pause");
+  const [autoResponsePace, setAutoResponsePaceState] =
+    useState<AutoResponsePace>("balanced");
 
   const [conversation, setConversation] = useState<ChatConversation>({
     id: "",
@@ -136,6 +174,36 @@ export function useSystemAudio() {
         console.error("Failed to load VAD config:", error);
       }
     }
+
+    const savedAutoMode = safeLocalStorage.getItem(
+      STORAGE_KEYS.AUTO_RESPONSE_MODE
+    );
+    if (
+      savedAutoMode === "off" ||
+      savedAutoMode === "on_question" ||
+      savedAutoMode === "after_pause"
+    ) {
+      setAutoResponseModeState(savedAutoMode);
+    }
+
+    const savedPace = safeLocalStorage.getItem(STORAGE_KEYS.AUTO_RESPONSE_PACE);
+    if (
+      savedPace === "fast" ||
+      savedPace === "balanced" ||
+      savedPace === "relaxed"
+    ) {
+      setAutoResponsePaceState(savedPace);
+    }
+  }, []);
+
+  const setAutoResponseMode = useCallback((mode: AutoResponseMode) => {
+    setAutoResponseModeState(mode);
+    safeLocalStorage.setItem(STORAGE_KEYS.AUTO_RESPONSE_MODE, mode);
+  }, []);
+
+  const setAutoResponsePace = useCallback((pace: AutoResponsePace) => {
+    setAutoResponsePaceState(pace);
+    safeLocalStorage.setItem(STORAGE_KEYS.AUTO_RESPONSE_PACE, pace);
   }, []);
 
   // Load quick actions from localStorage on mount
@@ -273,22 +341,42 @@ export function useSystemAudio() {
               ]);
 
               if (transcription.trim()) {
-                setLastTranscription(transcription);
+                // Dual-source label: system audio path is always "System"
+                setLastTranscription(`System: ${transcription.trim()}`);
                 setError("");
 
-                const effectiveSystemPrompt = useSystemPrompt
-                  ? systemPrompt || DEFAULT_SYSTEM_PROMPT
-                  : contextContent || DEFAULT_SYSTEM_PROMPT;
+                const mode = autoResponseMode;
+                const shouldRespond =
+                  mode === "after_pause" ||
+                  (mode === "on_question" &&
+                    looksLikeQuestion(transcription));
 
-                const previousMessages = conversation.messages.map((msg) => {
-                  return { role: msg.role, content: msg.content };
-                });
+                if (shouldRespond) {
+                  const paceMs = AUTO_RESPONSE_PACE_MS[autoResponsePace];
+                  if (abortControllerRef.current) {
+                    abortControllerRef.current.abort();
+                  }
+                  abortControllerRef.current = new AbortController();
+                  try {
+                    await delay(paceMs, abortControllerRef.current.signal);
+                  } catch {
+                    return;
+                  }
 
-                await processWithAI(
-                  transcription,
-                  effectiveSystemPrompt,
-                  previousMessages
-                );
+                  const effectiveSystemPrompt = useSystemPrompt
+                    ? systemPrompt || DEFAULT_SYSTEM_PROMPT
+                    : contextContent || DEFAULT_SYSTEM_PROMPT;
+
+                  const previousMessages = conversation.messages.map((msg) => {
+                    return { role: msg.role, content: msg.content };
+                  });
+
+                  await processWithAI(
+                    transcription.trim(),
+                    effectiveSystemPrompt,
+                    previousMessages
+                  );
+                }
               } else {
                 setError("Received empty transcription");
               }
@@ -318,6 +406,11 @@ export function useSystemAudio() {
     selectedSttProvider,
     allSttProviders,
     conversation.messages.length,
+    autoResponseMode,
+    autoResponsePace,
+    useSystemPrompt,
+    systemPrompt,
+    contextContent,
   ]);
 
   // Context management functions
@@ -924,5 +1017,10 @@ export function useSystemAudio() {
     ignoreContinuousRecording,
     // Scroll area ref for keyboard navigation
     scrollAreaRef,
+    // Auto-response settings
+    autoResponseMode,
+    setAutoResponseMode,
+    autoResponsePace,
+    setAutoResponsePace,
   };
 }

@@ -63,6 +63,10 @@ export const SystemAudio = (props: useSystemAudioType) => {
     startContinuousRecording,
     ignoreContinuousRecording,
     scrollAreaRef,
+    autoResponseMode,
+    setAutoResponseMode,
+    autoResponsePace,
+    setAutoResponsePace,
   } = props;
 
   const { hasActiveLicense, supportsImages } = useApp();
@@ -365,6 +369,10 @@ export const SystemAudio = (props: useSystemAudioType) => {
                       setUseSystemPrompt={setUseSystemPrompt}
                       contextContent={contextContent}
                       setContextContent={setContextContent}
+                      autoResponseMode={autoResponseMode}
+                      setAutoResponseMode={setAutoResponseMode}
+                      autoResponsePace={autoResponsePace}
+                      setAutoResponsePace={setAutoResponsePace}
                     />
 
                     {/* Help/Keyboard Shortcuts */}

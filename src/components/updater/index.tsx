@@ -118,9 +118,10 @@ export const Updater = () => {
     }
   };
 
-  // Check for updates on component mount
+  // Skip auto-check when this fork has no updater endpoints configured
   useEffect(() => {
-    checkForUpdates();
+    // Personal fork: empty updater endpoints — don't probe on launch
+    return;
   }, []);
 
   // Handle window resizing when popover opens/closes

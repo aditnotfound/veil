@@ -14,13 +14,31 @@ import { shouldUsePluelyAPI } from "./pluely.api";
 import { CHUNK_POLL_INTERVAL_MS } from "../chat-constants";
 import { getResponseSettings, RESPONSE_LENGTHS, LANGUAGES } from "@/lib";
 import { MARKDOWN_FORMATTING_INSTRUCTIONS } from "@/config/constants";
+import { retrievePersonalContext } from "@/lib/knowledge";
 
-function buildEnhancedSystemPrompt(baseSystemPrompt?: string): string {
+async function buildEnhancedSystemPrompt(params: {
+  baseSystemPrompt?: string;
+  userMessage?: string;
+  apiKey?: string;
+}): Promise<string> {
+  const { baseSystemPrompt, userMessage, apiKey } = params;
   const responseSettings = getResponseSettings();
   const prompts: string[] = [];
 
   if (baseSystemPrompt) {
     prompts.push(baseSystemPrompt);
+  }
+
+  try {
+    const personal = await retrievePersonalContext({
+      query: userMessage || baseSystemPrompt || "",
+      apiKey,
+    });
+    if (personal.trim()) {
+      prompts.push(personal);
+    }
+  } catch (err) {
+    console.warn("Personal knowledge retrieval skipped:", err);
   }
 
   const lengthOption = RESPONSE_LENGTHS.find(
@@ -40,7 +58,7 @@ function buildEnhancedSystemPrompt(baseSystemPrompt?: string): string {
   // Add markdown formatting instructions
   prompts.push(MARKDOWN_FORMATTING_INSTRUCTIONS);
 
-  return prompts.join(" ");
+  return prompts.join("\n\n");
 }
 
 // Pluely AI streaming function
@@ -189,7 +207,16 @@ export async function* fetchAIResponse(params: {
       return;
     }
 
-    const enhancedSystemPrompt = buildEnhancedSystemPrompt(systemPrompt);
+    const apiKeyForRag =
+      selectedProvider?.variables?.api_key ||
+      selectedProvider?.variables?.API_KEY ||
+      "";
+
+    const enhancedSystemPrompt = await buildEnhancedSystemPrompt({
+      baseSystemPrompt: systemPrompt,
+      userMessage,
+      apiKey: apiKeyForRag,
+    });
 
     // Check if we should use Pluely API instead
     const usePluelyAPI = await shouldUsePluelyAPI();

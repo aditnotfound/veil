@@ -20,7 +20,11 @@ import {
   RotateCcwIcon,
   ChevronUpIcon,
 } from "lucide-react";
-import { VadConfig } from "@/hooks/useSystemAudio";
+import {
+  VadConfig,
+  AutoResponseMode,
+  AutoResponsePace,
+} from "@/hooks/useSystemAudio";
 import {
   PROMPT_TEMPLATES,
   getPromptTemplateById,
@@ -60,6 +64,11 @@ interface SettingsPanelProps {
   setUseSystemPrompt: (value: boolean) => void;
   contextContent: string;
   setContextContent: (content: string) => void;
+  // Auto-response
+  autoResponseMode: AutoResponseMode;
+  setAutoResponseMode: (mode: AutoResponseMode) => void;
+  autoResponsePace: AutoResponsePace;
+  setAutoResponsePace: (pace: AutoResponsePace) => void;
 }
 
 export const SettingsPanel = ({
@@ -69,6 +78,10 @@ export const SettingsPanel = ({
   setUseSystemPrompt,
   contextContent,
   setContextContent,
+  autoResponseMode,
+  setAutoResponseMode,
+  autoResponsePace,
+  setAutoResponsePace,
 }: SettingsPanelProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -210,6 +223,84 @@ export const SettingsPanel = ({
                   step={0.5}
                   className="w-full"
                 />
+              </div>
+            )}
+          </div>
+
+          {/* Auto-response Section */}
+          <div className="space-y-3 pt-3 border-t border-border/50">
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              Auto Response
+            </h4>
+
+            <div className="space-y-2">
+              <Label className="text-xs font-medium">Mode</Label>
+              <div className="flex gap-1.5">
+                {(
+                  [
+                    { id: "off", label: "Off" },
+                    { id: "on_question", label: "On question" },
+                    { id: "after_pause", label: "After pause" },
+                  ] as const
+                ).map(({ id, label }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setAutoResponseMode(id)}
+                    className={cn(
+                      "flex-1 px-2 py-1.5 rounded-lg text-[10px] font-medium transition-all border",
+                      autoResponseMode === id
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background border-border hover:bg-accent"
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                {autoResponseMode === "off"
+                  ? "Transcribe only — AI won't auto-respond (quick actions still work)"
+                  : autoResponseMode === "on_question"
+                    ? "Respond only when speech looks like a question"
+                    : "Respond automatically after each speech pause"}
+              </p>
+            </div>
+
+            {autoResponseMode !== "off" && (
+              <div className="space-y-2">
+                <Label className="text-xs font-medium">Pace</Label>
+                <div className="flex gap-1.5">
+                  {(
+                    [
+                      { id: "fast", label: "Fast" },
+                      { id: "balanced", label: "Balanced" },
+                      { id: "relaxed", label: "Relaxed" },
+                    ] as const
+                  ).map(({ id, label }) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setAutoResponsePace(id)}
+                      className={cn(
+                        "flex-1 px-2 py-1.5 rounded-lg text-[10px] font-medium transition-all border",
+                        autoResponsePace === id
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-background border-border hover:bg-accent"
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  Delay before AI:{" "}
+                  {autoResponsePace === "fast"
+                    ? "400ms"
+                    : autoResponsePace === "balanced"
+                      ? "1.2s"
+                      : "2.5s"}
+                </p>
               </div>
             )}
           </div>
