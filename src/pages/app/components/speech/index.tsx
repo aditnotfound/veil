@@ -23,6 +23,7 @@ import { SettingsPanel } from "./SettingsPanel";
 import { PermissionFlow } from "./PermissionFlow";
 import { QuickActions } from "./QuickActions";
 import { Warning } from "./Warning";
+import { ListenModeChips } from "./ListenModeChips";
 import { useSystemAudioType } from "@/hooks";
 import { useApp } from "@/contexts";
 import { cn } from "@/lib/utils";
@@ -67,6 +68,9 @@ export const SystemAudio = (props: useSystemAudioType) => {
     setAutoResponseMode,
     autoResponsePace,
     setAutoResponsePace,
+    listenModes,
+    selectedListenModeId,
+    selectListenMode,
   } = props;
 
   const { hasActiveLicense, supportsImages } = useApp();
@@ -359,6 +363,13 @@ export const SystemAudio = (props: useSystemAudioType) => {
                       conversation={conversation}
                       conversationMode={conversationMode}
                       setConversationMode={setConversationMode}
+                    />
+
+                    {/* Listen Modes quick select */}
+                    <ListenModeChips
+                      modes={listenModes}
+                      selectedModeId={selectedListenModeId}
+                      onSelectMode={selectListenMode}
                     />
 
                     {/* Settings Panel */}

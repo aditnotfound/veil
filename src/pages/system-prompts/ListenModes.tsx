@@ -13,6 +13,8 @@ import {
   reorderListenMode,
   seedVeilDefaultPrompts,
 } from "@/lib/database";
+import { STORAGE_KEYS } from "@/config";
+import { safeLocalStorage } from "@/lib";
 import type { ListenModeWithPrompt } from "@/types";
 import { ArrowDown, ArrowUp, Headphones, Trash2 } from "lucide-react";
 
@@ -73,6 +75,7 @@ export const ListenModes = ({
   };
 
   const handleSelect = (mode: ListenModeWithPrompt) => {
+    safeLocalStorage.setItem(STORAGE_KEYS.SELECTED_LISTEN_MODE_ID, mode.id);
     if (mode.prompt_id != null) {
       onSelectPrompt(mode.prompt_id);
     }

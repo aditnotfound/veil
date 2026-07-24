@@ -17,8 +17,10 @@ import {
   CONVERSATION_SAVE_DEBOUNCE_MS,
   generateConversationId,
   generateMessageId,
+  listListenModes,
 } from "@/lib";
 import { Message } from "@/types/completion";
+import type { ListenModeWithPrompt } from "@/types";
 
 // VAD Configuration interface matching Rust
 export interface VadConfig {
@@ -135,6 +137,10 @@ export function useSystemAudio() {
   // Context management states
   const [useSystemPrompt, setUseSystemPrompt] = useState<boolean>(true);
   const [contextContent, setContextContent] = useState<string>("");
+  const [listenModes, setListenModes] = useState<ListenModeWithPrompt[]>([]);
+  const [selectedListenModeId, setSelectedListenModeId] = useState<
+    string | null
+  >(() => safeLocalStorage.getItem(STORAGE_KEYS.SELECTED_LISTEN_MODE_ID));
 
   const {
     selectedSttProvider,
@@ -142,6 +148,7 @@ export function useSystemAudio() {
     selectedAIProvider,
     allAiProviders,
     systemPrompt,
+    setSystemPrompt,
     selectedAudioDevices,
   } = useApp();
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -446,6 +453,88 @@ export function useSystemAudio() {
       saveContextSettings(useSystemPrompt, content);
     },
     [useSystemPrompt, saveContextSettings]
+  );
+
+  // Load listen modes for overlay chips
+  useEffect(() => {
+    let cancelled = false;
+    const loadModes = async () => {
+      try {
+        const rows = await listListenModes();
+        if (cancelled) return;
+        setListenModes(rows);
+
+        const storedModeId = safeLocalStorage.getItem(
+          STORAGE_KEYS.SELECTED_LISTEN_MODE_ID
+        );
+        const storedPromptId = safeLocalStorage.getItem(
+          STORAGE_KEYS.SELECTED_SYSTEM_PROMPT_ID
+        );
+
+        const selectedByMode = storedModeId
+          ? rows.find((mode) => mode.id === storedModeId)
+          : undefined;
+        const selectedByPrompt =
+          !selectedByMode && storedPromptId
+            ? rows.find((mode) => mode.prompt_id === Number(storedPromptId))
+            : undefined;
+
+        if (selectedByMode?.prompt_text) {
+          setSelectedListenModeId(selectedByMode.id);
+          // Prefer app systemPrompt; keep contextContent in sync for custom path
+          setSystemPrompt(selectedByMode.prompt_text);
+          setUseSystemPrompt(true);
+          setContextContent(selectedByMode.prompt_text);
+          saveContextSettings(true, selectedByMode.prompt_text);
+          if (selectedByMode.prompt_id != null) {
+            safeLocalStorage.setItem(
+              STORAGE_KEYS.SELECTED_SYSTEM_PROMPT_ID,
+              selectedByMode.prompt_id.toString()
+            );
+          }
+          safeLocalStorage.setItem(
+            STORAGE_KEYS.SYSTEM_PROMPT,
+            selectedByMode.prompt_text
+          );
+        } else if (selectedByPrompt) {
+          // Highlight matching chip without overriding an unrelated selection
+          setSelectedListenModeId(selectedByPrompt.id);
+        }
+      } catch (error) {
+        console.error("Failed to load listen modes:", error);
+      }
+    };
+    loadModes();
+    return () => {
+      cancelled = true;
+    };
+  }, [saveContextSettings, setSystemPrompt]);
+
+  const selectListenMode = useCallback(
+    (mode: ListenModeWithPrompt) => {
+      const promptText = mode.prompt_text?.trim();
+      if (!promptText) return;
+
+      setSelectedListenModeId(mode.id);
+      safeLocalStorage.setItem(STORAGE_KEYS.SELECTED_LISTEN_MODE_ID, mode.id);
+
+      // Sync into app systemPrompt selection (same as handleSelectPrompt)
+      setSystemPrompt(promptText);
+      safeLocalStorage.setItem(STORAGE_KEYS.SYSTEM_PROMPT, promptText);
+      if (mode.prompt_id != null) {
+        safeLocalStorage.setItem(
+          STORAGE_KEYS.SELECTED_SYSTEM_PROMPT_ID,
+          mode.prompt_id.toString()
+        );
+      }
+      safeLocalStorage.removeItem("selected_pluely_prompt");
+
+      // Prefer systemPrompt path; keep contextContent updated for processWithAI
+      setUseSystemPrompt(true);
+      setContextContent(promptText);
+      saveContextSettings(true, promptText);
+    },
+    [saveContextSettings, setSystemPrompt]
   );
 
   // Quick actions management
@@ -994,6 +1083,9 @@ export function useSystemAudio() {
     setUseSystemPrompt: updateUseSystemPrompt,
     contextContent,
     setContextContent: updateContextContent,
+    listenModes,
+    selectedListenModeId,
+    selectListenMode,
     startNewConversation,
     // Window resize
     resizeWindow,
