@@ -121,11 +121,11 @@ export const GenerateSystemPrompt = ({
           ) : (
             <div className="w-full flex flex-col gap-3">
               <p className="text-sm font-medium text-muted-foreground">
-                You need an active license to use this feature. Click the button
-                below to get a license.
+                You need an active license to use this feature. Click below to
+                unlock access.
               </p>
               <GetLicense
-                buttonText="Get License"
+                buttonText="Unlock Access"
                 buttonClassName="w-full"
                 setState={setIsOpen}
               />
