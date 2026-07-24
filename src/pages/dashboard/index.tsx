@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { PluelyApiSetup, Usage } from "./components";
 import { PageLayout } from "@/layouts";
 import { useApp } from "@/contexts";
+import { seedVeilDefaultPrompts } from "@/lib/database";
 
 const Dashboard = () => {
   const { hasActiveLicense } = useApp();
   const [activity, setActivity] = useState<any>(null);
   const [loadingActivity, setLoadingActivity] = useState(false);
+  const seedStarted = useRef(false);
 
   const fetchActivity = useCallback(async () => {
     if (!hasActiveLicense) {
@@ -29,6 +31,14 @@ const Dashboard = () => {
       setLoadingActivity(false);
     }
   }, [hasActiveLicense]);
+
+  useEffect(() => {
+    if (seedStarted.current) return;
+    seedStarted.current = true;
+    seedVeilDefaultPrompts().catch((err) => {
+      console.error("Failed to seed Veil default prompts:", err);
+    });
+  }, []);
 
   useEffect(() => {
     if (hasActiveLicense) {

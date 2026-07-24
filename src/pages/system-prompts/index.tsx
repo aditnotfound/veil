@@ -24,8 +24,10 @@ import {
 import { DeleteSystemPrompt } from "./Delete";
 import { CreateEditDialog } from "./CreateEditDialog";
 import { PluelyPrompts } from "./PluelyPrompts";
-import { useState } from "react";
+import { ListenModes } from "./ListenModes";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PageLayout } from "@/layouts";
+import { seedVeilDefaultPrompts } from "@/lib/database";
 
 const SystemPrompts = () => {
   const {
@@ -38,6 +40,7 @@ const SystemPrompts = () => {
     selectedPromptId,
     handleSelectPrompt,
     clearError,
+    refreshPrompts,
   } = useSystemPrompts();
 
   const [search, setSearch] = useState("");
@@ -52,18 +55,27 @@ const SystemPrompts = () => {
     name: "",
     prompt: "",
   });
+  const seedStarted = useRef(false);
 
-  /**
-   * Handle opening create dialog
-   */
+  useEffect(() => {
+    if (seedStarted.current) return;
+    seedStarted.current = true;
+    seedVeilDefaultPrompts()
+      .then(() => refreshPrompts())
+      .catch((err) => {
+        console.error("Failed to seed Veil default prompts:", err);
+      });
+  }, [refreshPrompts]);
+
+  const handleModesChanged = useCallback(() => {
+    refreshPrompts();
+  }, [refreshPrompts]);
+
   const handleCreateClick = () => {
     setForm({ name: "", prompt: "" });
     setIsCreateEditDialogOpen(true);
   };
 
-  /**
-   * Handle opening edit dialog
-   */
   const handleEditClick = (promptId: number) => {
     const promptToEdit = prompts.find((p) => p.id === promptId);
     if (promptToEdit) {
@@ -76,9 +88,6 @@ const SystemPrompts = () => {
     }
   };
 
-  /**
-   * Handle opening delete dialog
-   */
   const handleDeleteClick = (promptId: number) => {
     const promptToDelete = prompts.find((p) => p.id === promptId);
     if (promptToDelete) {
@@ -91,27 +100,21 @@ const SystemPrompts = () => {
     }
   };
 
-  /**
-   * Handle saving (create or update)
-   */
   const handleSave = async () => {
     try {
       setIsSaving(true);
       clearError();
 
       if (form.id) {
-        // Update existing prompt
         await updatePrompt(form.id, {
           name: form.name,
           prompt: form.prompt,
         });
       } else {
-        // Create new prompt
         const newPrompt = await createPrompt({
           name: form.name,
           prompt: form.prompt,
         });
-        // Auto-select the newly created prompt
         handleSelectPrompt(newPrompt.id);
       }
 
@@ -124,18 +127,12 @@ const SystemPrompts = () => {
     }
   };
 
-  /**
-   * Handle delete confirmation
-   */
   const handleDeleteConfirm = async (id: number) => {
     await deletePrompt(id);
     setForm({ name: "", prompt: "" });
     setIsDeleteDialogOpen(false);
   };
 
-  /**
-   * Handle AI generation
-   */
   const handleGenerate = (
     generatedPrompt: string,
     generatedPromptName: string
@@ -147,17 +144,14 @@ const SystemPrompts = () => {
     }));
   };
 
-  /**
-   * Handle selecting a prompt card
-   */
   const handleCardClick = (promptId: number) => {
     handleSelectPrompt(promptId);
   };
 
-  /**
-   * Filter prompts based on search
-   */
-  const filteredPrompts = prompts.filter(
+  // User-created prompts (exclude seeded defaults shown below)
+  const userPrompts = prompts.filter((prompt) => !prompt.is_default);
+
+  const filteredPrompts = userPrompts.filter(
     (prompt) =>
       prompt.name.toLowerCase().includes(search.toLowerCase()) ||
       prompt.prompt.toLowerCase().includes(search.toLowerCase())
@@ -166,21 +160,26 @@ const SystemPrompts = () => {
   return (
     <PageLayout
       title="System Prompts"
-      description="Manage your AI behavior profiles and create new ones"
+      description="Manage Listen Modes, curated profiles, and your own AI behavior prompts"
     >
-      {/* Error Display */}
       {error && (
         <div className="mb-4 rounded-lg border border-destructive/20 bg-destructive/10 p-3">
           <p className="text-sm text-destructive">{error}</p>
         </div>
       )}
-      {/* Search Bar */}
-      <div className="flex items-center gap-2 justify-between">
+
+      <ListenModes
+        selectedPromptId={selectedPromptId}
+        onSelectPrompt={handleSelectPrompt}
+        onModesChanged={handleModesChanged}
+      />
+
+      <div className="flex items-center gap-2 justify-between mt-6 pt-6 border-t border-input/50">
         <div className="relative w-full md:w-1/2 lg:w-1/3 select-none">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             type="text"
-            placeholder="Search system prompts..."
+            placeholder="Search your prompts..."
             className="pl-9 focus-visible:ring-0 focus-visible:ring-offset-0"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -191,6 +190,7 @@ const SystemPrompts = () => {
           Create New
         </Button>
       </div>
+
       {filteredPrompts.length === 0 ? (
         <Empty
           isLoading={isLoading}
@@ -224,7 +224,7 @@ const SystemPrompts = () => {
                         </CardTitle>
                       </div>
                       <CardDescription className="h-14 line-clamp-3 text-xs leading-relaxed">
-                        {prompt.prompt}
+                        {prompt.blurb || prompt.prompt}
                       </CardDescription>
                     </div>
                   </div>
@@ -273,7 +273,6 @@ const SystemPrompts = () => {
         </div>
       )}
 
-      {/* Create/Edit Dialog */}
       <CreateEditDialog
         isOpen={isCreateEditDialogOpen}
         onOpenChange={setIsCreateEditDialogOpen}
@@ -285,7 +284,6 @@ const SystemPrompts = () => {
         isSaving={isSaving}
       />
 
-      {/* Delete Confirmation Dialog */}
       <DeleteSystemPrompt
         isOpen={isDeleteDialogOpen}
         onOpenChange={setIsDeleteDialogOpen}
@@ -294,7 +292,6 @@ const SystemPrompts = () => {
         onDelete={handleDeleteConfirm}
       />
 
-      {/* Default Prompts */}
       <PluelyPrompts />
     </PageLayout>
   );
