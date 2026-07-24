@@ -1,11 +1,9 @@
 # Security Policy
 
-If you believe you have found a security vulnerability, we encourage you to let us know right away.
+If you believe you have found a security vulnerability in Veil, please let us know.
 
-We will investigate all legitimate reports and do our best to quickly fix the problem.
+Prefer GitHub's private vulnerability reporting on this repository's [Security tab](https://github.com/aditnotfound/veil/security) when available.
 
-Our preference is that you make use of GitHub's private vulnerability reporting feature to disclose potential security vulnerabilities in our Open Source Software.
+You can also reach out via [LinkedIn](https://www.linkedin.com/in/adit-patil/) or [X](https://x.com/aditnotfound).
 
-To do this, please visit the [Security tab](https://github.com/iamsrikanthnani/pluely/security) of the repository and click the **"Report a vulnerability"** button.
-
-For urgent matters, you can also contact us at [support@pluely.com](mailto:support@pluely.com).
+Please do not open public issues for sensitive security reports.
