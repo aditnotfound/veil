@@ -24,5 +24,12 @@ pub fn migrations() -> Vec<Migration> {
             sql: include_str!("migrations/knowledge.sql"),
             kind: MigrationKind::Up,
         },
+        // Migration 4: Listen modes + curated system prompt metadata
+        Migration {
+            version: 4,
+            description: "create_listen_modes",
+            sql: include_str!("migrations/listen-modes.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }
