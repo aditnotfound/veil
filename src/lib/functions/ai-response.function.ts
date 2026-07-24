@@ -175,7 +175,7 @@ async function* fetchPluelyAIResponse(params: {
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    yield `Pluely API Error: ${errorMessage}`;
+    yield `Managed API Error: ${errorMessage}`;
   }
 }
 
