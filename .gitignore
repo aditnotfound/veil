@@ -12,6 +12,23 @@ dist
 dist-ssr
 *.local
 
+# Secrets / local env (never commit)
+.env
+.env.*
+!.env.example
+src-tauri/.env
+src-tauri/.env.*
+
+# Rust / Tauri build
+src-tauri/target
+target
+
+# Local SQLite / app data
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

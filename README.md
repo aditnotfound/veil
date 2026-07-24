@@ -2,9 +2,11 @@
 
 Invisible desktop AI overlay. Bring your own API keys. Keep chats, transcripts, and personal knowledge on your machine.
 
-Based on the open-source [Pluely](https://github.com/iamsrikanthnani/pluely) project (GPL-3.0).
+Based on the open-source [Pluely](https://github.com/iamsrikanthnani/pluely) `0.1.9` tree (GPL-3.0). Veil keeps bring-your-own keys, local data, and unlocks the UI features that upstream gated behind a license server.
 
 ![Veil overlay](images/app-image.png)
+
+> **Privacy note:** API keys, chat history, and `veil.db` stay on your machine. Do not commit `.env` files or databases. Contact for security reports is on [SECURITY.md](SECURITY.md) (LinkedIn / X — no personal email in the repo).
 
 ## Features
 

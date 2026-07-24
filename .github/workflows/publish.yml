@@ -1,9 +1,9 @@
 name: "publish"
 
+# Manual only — avoids accidental public release builds.
+# Requires repo secrets if you enable a real release pipeline later.
 on:
-  push:
-    branches:
-      - master
+  workflow_dispatch:
 
 jobs:
   publish-tauri:
@@ -70,8 +70,8 @@ jobs:
           POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
         with:
           tagName: app-v__VERSION__
-          releaseName: "Pluely v__VERSION__"
-          releaseBody: "Download binaries for your OS. macOS users: If blocked, go to System Settings > Privacy & Security > Security section, find 'pluely was blocked' message, click 'Allow Anyway', then reopen the app."
+          releaseName: "Veil v__VERSION__"
+          releaseBody: "Download binaries for your OS. macOS users: If blocked, go to System Settings > Privacy & Security > Security section, allow the app, then reopen."
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
