@@ -47,7 +47,7 @@ export const GetLicense = ({
       size="sm"
       className={buttonClassName}
     >
-      {isCheckoutLoading ? "Loading..." : buttonText || "Get License"}
+      {isCheckoutLoading ? "Loading..." : buttonText || "Unlock Access"}
     </Button>
   );
 };
