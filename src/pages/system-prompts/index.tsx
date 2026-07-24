@@ -294,7 +294,7 @@ const SystemPrompts = () => {
         onDelete={handleDeleteConfirm}
       />
 
-      {/* Pluely Default Prompts */}
+      {/* Default Prompts */}
       <PluelyPrompts />
     </PageLayout>
   );
