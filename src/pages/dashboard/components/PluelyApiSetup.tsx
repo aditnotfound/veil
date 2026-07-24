@@ -284,7 +284,7 @@ export const PluelyApiSetup = () => {
 
   const title = isModelsLoading
     ? "Loading Models..."
-    : `Pluely supports ${models?.length} model${
+    : `Managed API supports ${models?.length} model${
         models?.length !== 1 ? "s" : ""
       }`;
 
@@ -292,7 +292,7 @@ export const PluelyApiSetup = () => {
     ? "Fetching the list of supported models..."
     : providerList
     ? `Access top models from providers like ${providerList}. and select smaller models for faster responses.`
-    : "Explore all the models Pluely supports.";
+    : "Explore all models available through the Managed API.";
 
   return (
     <div id="pluely-api" className="space-y-3 -mt-2">
@@ -400,10 +400,11 @@ export const PluelyApiSetup = () => {
           {!storedLicenseKey ? (
             <>
               <div className="space-y-1">
-                <label className="text-sm font-medium">License Key</label>
+                <label className="text-sm font-medium">Optional license</label>
                 <p className="text-sm font-medium text-muted-foreground">
-                  After completing your purchase, you'll receive a license key
-                  via email. Paste it below to activate.
+                  If you have a license key for Managed API access, paste it
+                  below to activate. You can also use your own providers without
+                  a license.
                 </p>
               </div>
               <div className="flex gap-2">
@@ -467,8 +468,8 @@ export const PluelyApiSetup = () => {
               {storedLicenseKey ? (
                 <div className="-mt-1">
                   <p className="text-sm font-medium text-muted-foreground select-auto">
-                    If you need any help or any assistance, contact
-                    support@pluely.com
+                    Need help with your license? Check your purchase receipt or
+                    the docs that came with your key.
                   </p>
                 </div>
               ) : null}
@@ -478,13 +479,13 @@ export const PluelyApiSetup = () => {
       </div>
       <div className="flex justify-between items-center">
         <Header
-          title={`${pluelyApiEnabled ? "Disable" : "Enable"} Pluely API`}
+          title={`${pluelyApiEnabled ? "Disable" : "Enable"} Managed API`}
           description={
             storedLicenseKey
               ? pluelyApiEnabled
-                ? "Using all pluely APIs for audio, and chat."
-                : "Using all your own AI Providers for audio, and chat."
-              : "A valid license is required to enable Pluely API or you can use your own AI Providers and STT Providers."
+                ? "Using Managed API for audio and chat."
+                : "Using your own AI providers for audio and chat."
+              : "An optional license unlocks Managed API, or use your own AI and STT providers."
           }
         />
         <Switch
