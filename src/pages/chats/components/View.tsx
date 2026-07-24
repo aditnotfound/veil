@@ -244,7 +244,7 @@ const View = () => {
                 </p>
 
                 <GetLicense
-                  buttonText="Get License"
+                  buttonText="Unlock Access"
                   buttonClassName="w-full mt-2"
                 />
               </div>
