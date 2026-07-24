@@ -190,7 +190,7 @@ export const ShortcutManager = () => {
                 customize the key bindings.
               </p>
               <GetLicense
-                buttonText="Get License"
+                buttonText="Unlock Access"
                 buttonClassName="w-full mt-2"
               />
             </div>
