@@ -2,36 +2,33 @@
   "name": "veil",
   "private": false,
   "version": "0.1.9",
-  "description": "Veil — personal fork of Pluely with BYO keys and unlocked Pro UI",
+  "description": "Veil — invisible desktop AI overlay with BYO keys, personal knowledge RAG, and Ask/Listen modes",
   "author": {
-    "name": "Srikanth Nani",
-    "email": "srikanthnani1202@gmail.com",
-    "url": "https://www.srikanthnani.com"
+    "name": "Adit Patil",
+    "email": "aditajpatil2008@gmail.com",
+    "url": "https://www.linkedin.com/in/adit-patil/"
   },
   "license": "GPL-3.0",
-  "homepage": "https://github.com/iamsrikanthnani/pluely#readme",
+  "homepage": "https://github.com/aditnotfound/veil#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/iamsrikanthnani/pluely.git"
+    "url": "git+https://github.com/aditnotfound/veil.git"
   },
   "bugs": {
-    "url": "https://github.com/iamsrikanthnani/pluely/issues"
+    "url": "https://github.com/aditnotfound/veil/issues"
   },
   "keywords": [
     "ai-assistant",
     "tauri",
     "desktop-app",
     "privacy-first",
-    "open-source",
-    "meeting-assistant",
     "speech-to-text",
     "llm",
-    "chatgpt",
-    "claude",
-    "cluely-alternative",
+    "rag",
     "typescript",
     "react",
-    "rust"
+    "rust",
+    "veil"
   ],
   "type": "module",
   "scripts": {
