@@ -42,8 +42,7 @@ export const DragButton = () => {
               </p>
               <p className="text-sm font-medium text-muted-foreground">
                 Once you complete your purchase, you'll receive a license key
-                via email. Paste in the Settings → Pluely Access section to
-                activate.
+                via email. Paste it in Settings → Managed API to activate.
               </p>
             </div>
             <GetLicense setState={setIsOpen} />
