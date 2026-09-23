@@ -44,7 +44,12 @@
       "icons/icon.ico"
     ],
     "resources": ["info.plist", "pluely.desktop"],
-    "macOS": { "minimumSystemVersion": "10.13" }
+    "macOS": { "minimumSystemVersion": "10.13" },
+    "windows": {
+      "nsis": {
+        "installerHooks": "windows/nsis-hooks.nsh"
+      }
+    }
   },
   "plugins": {
     "sql": {

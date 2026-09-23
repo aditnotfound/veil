@@ -31,6 +31,10 @@ Production build:
 npm run tauri build
 ```
 
+### Windows uninstall data choice
+
+The interactive NSIS uninstaller leaves **Delete app data** unchecked by default. Leave it unchecked to retain Veil's local database, settings, and provider credentials for a reinstall; select it to remove the bundle's roaming/local AppData and its AI/STT credentials from Windows Credential Manager. A silent uninstall also retains data by default. Use `uninstall.exe /S /DELETEAPPDATA` only when removal of both local data and stored provider credentials is intended. Updater-driven uninstalls preserve data regardless of this flag.
+
 ## Configure
 
 1. Open the dashboard (`Ctrl+Shift+D` on Windows)
