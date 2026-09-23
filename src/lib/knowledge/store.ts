@@ -1,4 +1,5 @@
 import { getDatabase } from "@/lib/database";
+import { invoke } from "@tauri-apps/api/core";
 import type { KnowledgeSource, KnowledgeSourceKind } from "./types";
 import { chunkText } from "./chunk";
 import { embedTexts } from "./embed";
@@ -37,9 +38,8 @@ export async function listKnowledgeSources(): Promise<KnowledgeSource[]> {
 }
 
 export async function deleteKnowledgeSource(id: string): Promise<void> {
-  const db = await getDatabase();
-  await db.execute("DELETE FROM knowledge_chunks WHERE source_id = $1", [id]);
-  await db.execute("DELETE FROM knowledge_sources WHERE id = $1", [id]);
+  await getDatabase(); // Ensure migrations completed before the native transaction.
+  await invoke("delete_knowledge_index", { sourceId: id });
 }
 
 export async function ingestKnowledgeSource(params: {
@@ -47,58 +47,51 @@ export async function ingestKnowledgeSource(params: {
   kind: KnowledgeSourceKind;
   text: string;
   tags: string[];
-  apiKey: string;
+  apiKey?: string;
   existingId?: string;
 }): Promise<string> {
   const { title, kind, text, tags, apiKey, existingId } = params;
   const cleaned = text.trim();
   if (!cleaned) throw new Error("Nothing to ingest — empty text");
 
-  const db = await getDatabase();
   const now = Date.now();
   const id = existingId || newId("ks");
-
-  if (existingId) {
-    await db.execute("DELETE FROM knowledge_chunks WHERE source_id = $1", [
-      existingId,
-    ]);
-    await db.execute(
-      `UPDATE knowledge_sources
-       SET title = $1, kind = $2, tags = $3, raw_text = $4, updated_at = $5
-       WHERE id = $6`,
-      [title, kind, JSON.stringify(tags), cleaned, now, existingId]
-    );
-  } else {
-    await db.execute(
-      `INSERT INTO knowledge_sources (id, title, kind, tags, raw_text, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [id, title, kind, JSON.stringify(tags), cleaned, now, now]
-    );
-  }
-
   const chunks = chunkText(cleaned);
-  // Batch embeddings (OpenAI allows arrays)
+  const prepared: { id: string; content: string; embedding: number[] }[] = [];
+
+  // Prepare every network result before changing any stored source or index.
   const batchSize = 32;
-  for (let i = 0; i < chunks.length; i += batchSize) {
+  for (let i = 0; i < chunks.length && apiKey?.trim(); i += batchSize) {
     const batch = chunks.slice(i, i + batchSize);
     const embeddings = await embedTexts(apiKey, batch);
+    if (embeddings.length !== batch.length || embeddings.some(
+      (vector) => !Array.isArray(vector) || vector.length === 0 ||
+        vector.some((number) => !Number.isFinite(number))
+    )) {
+      throw new Error("Embedding provider returned incomplete vectors; the old index was preserved.");
+    }
     for (let j = 0; j < batch.length; j++) {
-      const chunkId = newId("kc");
-      await db.execute(
-        `INSERT INTO knowledge_chunks (id, source_id, chunk_index, content, embedding, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [
-          chunkId,
-          id,
-          i + j,
-          batch[j],
-          JSON.stringify(embeddings[j] || []),
-          now,
-        ]
-      );
+      prepared.push({ id: newId("kc"), content: batch[j], embedding: embeddings[j] });
     }
   }
 
+  if (!apiKey?.trim()) {
+    prepared.push(...chunks.map((content) => ({ id: newId("kc"), content, embedding: [] })));
+  }
+
+  await getDatabase(); // Ensure migrations completed before the native transaction.
+  await invoke("commit_knowledge_index", {
+    input: {
+      sourceId: id,
+      replace: !!existingId,
+      title,
+      kind,
+      tags,
+      rawText: cleaned,
+      updatedAt: now,
+      chunks: prepared,
+    },
+  });
   return id;
 }
 

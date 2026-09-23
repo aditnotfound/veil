@@ -76,10 +76,6 @@ export const VeilDefaultPrompts = ({
     };
 
     onSetSelectedAIProvider(next);
-    safeLocalStorage.setItem(
-      STORAGE_KEYS.SELECTED_AI_PROVIDER,
-      JSON.stringify(next)
-    );
   };
 
   const handleUse = (item: DisplayPrompt) => {

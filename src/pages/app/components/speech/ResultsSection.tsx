@@ -1,12 +1,20 @@
 import { ChatConversation } from "@/types";
-import { Markdown, Switch, CopyButton } from "@/components";
-import { BotIcon, HeadphonesIcon, Loader2, SparklesIcon } from "lucide-react";
+import { Button, Markdown, Switch, CopyButton } from "@/components";
+import { BotIcon, Loader2, SparklesIcon, TelescopeIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Props = {
   lastTranscription: string;
+  lastAnswerPrompt: string;
+  partialSystemCaption: string;
+  partialMicCaption: string;
   lastAIResponse: string;
   isAIProcessing: boolean;
+  deepAIResponse: string;
+  isDeepProcessing: boolean;
+  deepAnswerStatus: "draft" | null;
+  deepAnswerError: string;
+  goDeeper: () => void;
   conversation: ChatConversation;
   conversationMode: boolean;
   setConversationMode: (mode: boolean) => void;
@@ -14,16 +22,26 @@ type Props = {
 
 export const ResultsSection = ({
   lastTranscription,
+  lastAnswerPrompt,
+  partialSystemCaption,
+  partialMicCaption,
   lastAIResponse,
   isAIProcessing,
+  deepAIResponse,
+  isDeepProcessing,
+  deepAnswerStatus,
+  deepAnswerError,
+  goDeeper,
   conversation,
   conversationMode,
   setConversationMode,
 }: Props) => {
   const hasResponse = lastAIResponse || isAIProcessing;
   const hasHistory = conversation.messages.length > 2;
+  const latestText = lastTranscription.replace(/^(System|Mic):\s*/i, "");
+  const showLatestTranscript = !!lastTranscription && (!hasResponse || latestText !== lastAnswerPrompt);
 
-  if (!hasResponse && !lastTranscription) {
+  if (!hasResponse && !lastTranscription && !partialSystemCaption && !partialMicCaption) {
     return null;
   }
 
@@ -53,26 +71,33 @@ export const ResultsSection = ({
         </div>
       </div>
 
-      {/* RESPONSE MODE: System as text, then AI response */}
+      {(partialSystemCaption || partialMicCaption) && (
+        <div className="space-y-1 text-[11px] text-muted-foreground" aria-live="polite">
+          {partialSystemCaption && <p><span className="font-semibold">System · live:</span> {partialSystemCaption}</p>}
+          {partialMicCaption && <p><span className="font-semibold">Mic · live:</span> {partialMicCaption}</p>}
+        </div>
+      )}
+
+      {showLatestTranscript && (
+        <p className="text-[11px] text-muted-foreground">
+          <span className="font-semibold">Latest transcript · </span>{lastTranscription}
+        </p>
+      )}
+
+      {/* Keep the answer tied to its original prompt as newer speech arrives. */}
       {!conversationMode && (
         <div className="space-y-2">
-          {/* System / Mic labeled transcription (prefix already in state) */}
-          {lastTranscription && (
-            <p className="text-[11px] text-muted-foreground">
-              {/^(System|Mic):\s*/i.test(lastTranscription) ? (
-                lastTranscription
-              ) : (
-                <>
-                  <span className="font-semibold">System:</span>{" "}
-                  {lastTranscription}
-                </>
-              )}
-            </p>
-          )}
-
           {/* AI Response */}
           {hasResponse && (
             <div>
+              {lastAnswerPrompt && (
+                <p className="text-[11px] text-muted-foreground mb-2 line-clamp-2">
+                  <span className="font-semibold">Answering · </span>{lastAnswerPrompt}
+                </p>
+              )}
+              <p className="text-[9px] uppercase tracking-wide text-muted-foreground mb-1">
+                Initial · unverified
+              </p>
               {isAIProcessing && !lastAIResponse ? (
                 <div className="flex items-center gap-2 py-2">
                   <Loader2 className="h-4 w-4 animate-spin text-primary" />
@@ -105,6 +130,14 @@ export const ResultsSection = ({
                   AI
                 </span>
               </div>
+              {lastAnswerPrompt && (
+                <p className="text-[10px] text-muted-foreground mb-2 line-clamp-2">
+                  <span className="font-semibold">Answering · </span>{lastAnswerPrompt}
+                </p>
+              )}
+              <p className="text-[9px] uppercase tracking-wide text-muted-foreground mb-1">
+                Initial · unverified
+              </p>
               {isAIProcessing && !lastAIResponse ? (
                 <div className="flex items-center gap-2">
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
@@ -120,21 +153,6 @@ export const ResultsSection = ({
                   )}
                 </div>
               )}
-            </div>
-          )}
-
-          {/* System / Mic Input - Second */}
-          {lastTranscription && (
-            <div className="rounded-md border-l-2 border-primary/50 bg-primary/5 p-2.5">
-              <div className="flex items-center gap-1.5 mb-1">
-                <HeadphonesIcon className="h-3 w-3 text-primary" />
-                <span className="text-[9px] font-medium text-primary uppercase tracking-wide">
-                  {/^Mic:/i.test(lastTranscription) ? "Mic" : "System"}
-                </span>
-              </div>
-              <p className="text-sm">
-                {lastTranscription.replace(/^(System|Mic):\s*/i, "")}
-              </p>
             </div>
           )}
 
@@ -167,6 +185,54 @@ export const ResultsSection = ({
                     </div>
                   ))}
               </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {lastAIResponse && !isAIProcessing && (
+        <div className="pt-2 border-t border-border/50 space-y-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 text-[10px] gap-1.5"
+            onClick={goDeeper}
+            disabled={isDeepProcessing}
+          >
+            {isDeepProcessing ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <TelescopeIcon className="h-3 w-3" />
+            )}
+            {isDeepProcessing ? "Working deeper…" : "Go deeper"}
+          </Button>
+
+          {(deepAIResponse || isDeepProcessing || deepAnswerError) && (
+            <div className="rounded-md bg-background/60 border border-border/50 p-2.5 space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                  {deepAnswerStatus === "draft" ? "Deep draft · not independently checked" : "Deep draft in progress"}
+                </span>
+                {deepAIResponse && !isDeepProcessing && <CopyButton content={deepAIResponse} />}
+              </div>
+              {deepAnswerError && (
+                <p className="text-[10px] text-destructive">{deepAnswerError}</p>
+              )}
+              {deepAIResponse && (
+                <div className="prose prose-sm max-w-none dark:prose-invert text-sm">
+                  <Markdown>{deepAIResponse}</Markdown>
+                  {isDeepProcessing && (
+                    <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-1 align-middle" />
+                  )}
+                </div>
+              )}
+              {isDeepProcessing && !deepAIResponse && (
+                <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Building a careful draft…
+                </div>
+              )}
             </div>
           )}
         </div>

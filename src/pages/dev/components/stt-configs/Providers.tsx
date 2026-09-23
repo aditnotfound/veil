@@ -8,6 +8,7 @@ export const Providers = ({
   allSttProviders,
   selectedSttProvider,
   onSetSelectedSttProvider,
+  providerStorageError,
   sttVariables,
 }: UseSettingsReturn) => {
   const [localSelectedProvider, setLocalSelectedProvider] =
@@ -41,6 +42,7 @@ export const Providers = ({
 
   return (
     <div className="space-y-3">
+      {providerStorageError && <p role="alert" className="text-sm text-red-500">{providerStorageError}</p>}
       <div className="space-y-2">
         <Header
           title="Select STT Provider"
@@ -85,7 +87,7 @@ export const Providers = ({
               )?.isCustom
                 ? "Custom Provider"
                 : selectedSttProvider?.provider
-            } API key to authenticate and access STT models. Your key is stored locally and never shared.`}
+            } API key to authenticate and access STT models. Veil stores it in the OS credential store and sends it to the selected provider for requests.`}
           />
 
           <div className="space-y-2">

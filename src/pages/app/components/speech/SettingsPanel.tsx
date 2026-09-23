@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   Button,
+  Input,
   Label,
   Slider,
   Switch,
@@ -69,6 +70,16 @@ interface SettingsPanelProps {
   setAutoResponseMode: (mode: AutoResponseMode) => void;
   autoResponsePace: AutoResponsePace;
   setAutoResponsePace: (pace: AutoResponsePace) => void;
+  jevShadowEnabled: boolean;
+  jevShadowAvailable: boolean;
+  jevShadowStatus: string;
+  setJevShadowEnabled: (enabled: boolean) => void;
+  sessionPlannerEnabled: boolean;
+  sessionPlannerAvailable: boolean;
+  sessionPlannerStatus: string;
+  setSessionPlannerEnabled: (enabled: boolean) => void;
+  deepModelOverride: string;
+  setDeepModelOverride: (value: string) => void;
 }
 
 export const SettingsPanel = ({
@@ -82,6 +93,16 @@ export const SettingsPanel = ({
   setAutoResponseMode,
   autoResponsePace,
   setAutoResponsePace,
+  jevShadowEnabled,
+  jevShadowAvailable,
+  jevShadowStatus,
+  setJevShadowEnabled,
+  sessionPlannerEnabled,
+  sessionPlannerAvailable,
+  sessionPlannerStatus,
+  setSessionPlannerEnabled,
+  deepModelOverride,
+  setDeepModelOverride,
 }: SettingsPanelProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -126,7 +147,7 @@ export const SettingsPanel = ({
       hop_size: 1024,
       sensitivity_rms: 0.012,
       peak_threshold: 0.035,
-      silence_chunks: 45,
+      silence_chunks: 20,
       min_speech_chunks: 7,
       pre_speech_chunks: 12,
       noise_gate_threshold: 0.003,
@@ -240,7 +261,7 @@ export const SettingsPanel = ({
                   [
                     { id: "off", label: "Off" },
                     { id: "on_question", label: "On question" },
-                    { id: "after_pause", label: "After pause" },
+                    { id: "after_pause", label: "Questions + requests" },
                   ] as const
                 ).map(({ id, label }) => (
                   <button
@@ -263,7 +284,7 @@ export const SettingsPanel = ({
                   ? "Transcribe only — AI won't auto-respond (quick actions still work)"
                   : autoResponseMode === "on_question"
                     ? "Respond only when speech looks like a question"
-                    : "Respond automatically after each speech pause"}
+                    : "Respond to clear questions and direct requests; stay silent for other turns"}
               </p>
             </div>
 
@@ -296,13 +317,73 @@ export const SettingsPanel = ({
                 <p className="text-[10px] text-muted-foreground">
                   Delay before AI:{" "}
                   {autoResponsePace === "fast"
-                    ? "400ms"
+                    ? "0ms"
                     : autoResponsePace === "balanced"
-                      ? "1.2s"
-                      : "2.5s"}
+                      ? "250ms"
+                      : "750ms"}
                 </p>
               </div>
             )}
+
+            <div className="flex items-start justify-between gap-4 rounded-lg border border-border/50 p-2.5">
+              <div className="space-y-1">
+                <Label htmlFor="jev-shadow-toggle" className="text-xs font-medium">
+                  JEV comparison (experimental)
+                </Label>
+                <p className="text-[10px] text-muted-foreground">
+                  Sends finalized call-audio text and up to four recent mic or call-audio transcript turns to OpenRouter.
+                  May incur charges. Records choices locally; visible answers stay on the current router.
+                  Turns off when capture stops.
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  {jevShadowAvailable ? jevShadowStatus : "Select OpenRouter and configure its API key first"}
+                </p>
+              </div>
+              <Switch
+                id="jev-shadow-toggle"
+                checked={jevShadowEnabled}
+                onCheckedChange={setJevShadowEnabled}
+                disabled={!jevShadowAvailable || autoResponseMode === "off"}
+              />
+            </div>
+
+            <div className="space-y-1 rounded-lg border border-border/50 p-2.5">
+              <Label htmlFor="deep-model-override" className="text-xs font-medium">
+                Deep answer model or deployment
+              </Label>
+              <Input
+                id="deep-model-override"
+                value={deepModelOverride}
+                onChange={(event) => setDeepModelOverride(event.target.value)}
+                placeholder="Blank uses the initial-card model"
+                className="h-8 text-xs"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Optional call-only override for Go deeper. Use a model or deployment identifier accepted by the selected provider.
+              </p>
+            </div>
+
+            <div className="flex items-start justify-between gap-4 rounded-lg border border-border/50 p-2.5">
+              <div className="space-y-1">
+                <Label htmlFor="session-planner-toggle" className="text-xs font-medium">
+                  Session planner (experimental)
+                </Label>
+                <p className="text-[10px] text-muted-foreground">
+                  Sends a bounded snapshot of finalized mic and call-audio transcript turns to the selected AI provider every eight turns.
+                  May incur charges. Refreshes asynchronously and never blocks captions or ordinary answers. Plans remain unverified candidates.
+                  Turns off when capture stops.
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  {sessionPlannerAvailable ? sessionPlannerStatus : "Select and configure an AI provider first"}
+                </p>
+              </div>
+              <Switch
+                id="session-planner-toggle"
+                checked={sessionPlannerEnabled}
+                onCheckedChange={setSessionPlannerEnabled}
+                disabled={!sessionPlannerAvailable}
+              />
+            </div>
           </div>
 
           {/* Context Section */}

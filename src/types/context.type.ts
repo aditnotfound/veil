@@ -24,6 +24,7 @@ export type IContextType = {
     provider: string;
     variables: Record<string, string>;
   };
+  providerStorageError: string;
   onSetSelectedSttProvider: ({
     provider,
     variables,

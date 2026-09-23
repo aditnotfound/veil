@@ -8,6 +8,7 @@ export const Providers = ({
   allAiProviders,
   selectedAIProvider,
   onSetSelectedAIProvider,
+  providerStorageError,
   variables,
 }: UseSettingsReturn) => {
   const [localSelectedProvider, setLocalSelectedProvider] =
@@ -41,6 +42,7 @@ export const Providers = ({
 
   return (
     <div className="space-y-3">
+      {providerStorageError && <p role="alert" className="text-sm text-red-500">{providerStorageError}</p>}
       <div className="space-y-2">
         <Header
           title="Select AI Provider"
@@ -87,7 +89,7 @@ export const Providers = ({
               )?.isCustom
                 ? "Custom Provider"
                 : selectedAIProvider?.provider
-            } API key to authenticate and access AI models. Your key is stored locally and never shared.`}
+            } API key to authenticate and access AI models. Veil stores it in the OS credential store and sends it to the selected provider for requests.`}
           />
 
           <div className="space-y-2">

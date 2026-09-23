@@ -3,9 +3,12 @@ mod activate;
 mod api;
 mod capture;
 mod db;
+mod provider_secrets;
+mod knowledge_index;
 mod shortcuts;
 mod window;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use tauri::{AppHandle, Manager, WebviewWindow};
 use tauri_plugin_posthog::{init as posthog_init, PostHogConfig, PostHogOptions};
 use tokio::task::JoinHandle;
@@ -22,6 +25,8 @@ pub struct AudioState {
     stream_task: Arc<Mutex<Option<JoinHandle<()>>>>,
     vad_config: Arc<Mutex<VadConfig>>,
     is_capturing: Arc<Mutex<bool>>,
+    pub(crate) segment_sequence: AtomicU64,
+    pub(crate) live_caption_frames: Arc<AtomicBool>,
 }
 
 #[tauri::command]
@@ -50,7 +55,6 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_http::init())
-        .plugin(tauri_plugin_keychain::init())
         .plugin(tauri_plugin_shell::init()) // Add shell plugin
         .plugin(posthog_init(PostHogConfig {
             api_key: posthog_api_key,
@@ -73,6 +77,11 @@ pub fn run() {
     let mut builder = builder
         .invoke_handler(tauri::generate_handler![
             get_app_version,
+            knowledge_index::commit_knowledge_index,
+            knowledge_index::delete_knowledge_index,
+            provider_secrets::save_provider_secret,
+            provider_secrets::get_provider_secret,
+            provider_secrets::remove_provider_secret,
             window::set_window_height,
             window::open_dashboard,
             window::toggle_dashboard,
@@ -105,6 +114,7 @@ pub fn run() {
             api::check_license_status,
             api::get_activity,
             speaker::start_system_audio_capture,
+            speaker::set_call_live_captions,
             speaker::stop_system_audio_capture,
             speaker::manual_stop_continuous,
             speaker::check_system_audio_access,

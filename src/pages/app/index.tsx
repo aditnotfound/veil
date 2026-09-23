@@ -183,7 +183,7 @@ const App = () => {
                 : "hidden w-full fade-out transition-all duration-300"
             }`}
           >
-            <Completion isHidden={isHidden} />
+            <Completion isHidden={isHidden} showAudio={showAskInput} />
             <Button
               size={"icon"}
               className="cursor-pointer"

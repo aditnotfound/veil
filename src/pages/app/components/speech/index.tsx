@@ -13,6 +13,8 @@ import {
   AudioLinesIcon,
   CameraIcon,
   PlusIcon,
+  MicIcon,
+  MicOffIcon,
   XIcon,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
@@ -24,6 +26,7 @@ import { PermissionFlow } from "./PermissionFlow";
 import { QuickActions } from "./QuickActions";
 import { Warning } from "./Warning";
 import { ListenModeChips } from "./ListenModeChips";
+import { CallMicCapture } from "./CallMicCapture";
 import { useSystemAudioType } from "@/hooks";
 import { useApp } from "@/contexts";
 import { cn } from "@/lib/utils";
@@ -34,7 +37,13 @@ export const SystemAudio = (props: useSystemAudioType) => {
     isProcessing,
     isAIProcessing,
     lastTranscription,
+    lastAnswerPrompt,
     lastAIResponse,
+    deepAIResponse,
+    isDeepProcessing,
+    deepAnswerStatus,
+    deepAnswerError,
+    goDeeper,
     error,
     setupRequired,
     startCapture,
@@ -68,9 +77,34 @@ export const SystemAudio = (props: useSystemAudioType) => {
     setAutoResponseMode,
     autoResponsePace,
     setAutoResponsePace,
+    jevShadowEnabled,
+    jevShadowAvailable,
+    jevShadowStatus,
+    setJevShadowEnabled,
+    sessionPlannerEnabled,
+    sessionPlannerAvailable,
+    sessionPlannerStatus,
+    setSessionPlannerEnabled,
+    deepModelOverride,
+    setDeepModelOverride,
     listenModes,
     selectedListenModeId,
     selectListenMode,
+    micEnabled,
+    micError,
+    toggleMic,
+    handleMicSegment,
+    handleMicSpeechStart,
+    handleMicError,
+    micDeviceId,
+    liveCaptionsEnabled,
+    toggleLiveCaptions,
+    liveCaptionsAvailable,
+    systemLiveStatus,
+    micLiveStatus,
+    partialSystemCaption,
+    partialMicCaption,
+    handleMicFrame,
   } = props;
 
   const { hasActiveLicense, supportsImages } = useApp();
@@ -181,6 +215,17 @@ export const SystemAudio = (props: useSystemAudioType) => {
   };
 
   return (
+    <>
+    {capturing && micEnabled && (
+      <CallMicCapture
+        key={micDeviceId}
+        deviceId={micDeviceId}
+        onSegment={handleMicSegment}
+        onSpeechStart={handleMicSpeechStart}
+        onFrame={liveCaptionsEnabled ? handleMicFrame : undefined}
+        onError={handleMicError}
+      />
+    )}
     <Popover
       open={isPopoverOpen}
       onOpenChange={(open) => {
@@ -233,6 +278,28 @@ export const SystemAudio = (props: useSystemAudioType) => {
 
                 {/* Action Buttons */}
                 <div className="flex items-center gap-1.5 flex-shrink-0">
+                  {liveCaptionsAvailable && (
+                    <Button
+                      size="sm"
+                      variant={liveCaptionsEnabled ? "default" : "outline"}
+                      onClick={toggleLiveCaptions}
+                      title="Live captions send both audio sources to Deepgram while capture is active. Batch transcription remains the fallback."
+                    >
+                      Live captions {liveCaptionsEnabled ? "on" : "off"}
+                    </Button>
+                  )}
+                  {capturing && !setupRequired && (
+                    <Button
+                      size="sm"
+                      variant={micEnabled ? "default" : "outline"}
+                      onClick={toggleMic}
+                      className="h-6 text-[10px] gap-1 px-2"
+                      title={micEnabled ? "Mute microphone in Listen" : "Enable microphone in Listen"}
+                    >
+                      {micEnabled ? <MicIcon className="w-3 h-3" /> : <MicOffIcon className="w-3 h-3" />}
+                      Mic {micEnabled ? "On" : "Off"}
+                    </Button>
+                  )}
                   {/* Screenshot Button */}
                   {hasActiveLicense && !setupRequired && supportsImages && (
                     <Button
@@ -290,6 +357,11 @@ export const SystemAudio = (props: useSystemAudioType) => {
 
             <ScrollArea className="flex-1 min-h-0" ref={scrollAreaRef}>
               <div className="p-2 space-y-2">
+                {micError && (
+                  <p role="status" className="text-[11px] text-destructive rounded border border-destructive/20 p-2">
+                    {micError}
+                  </p>
+                )}
                 {/* Screenshot Preview */}
                 {screenshotImage && (
                   <div className="flex items-center gap-2 p-2 rounded-lg bg-primary/5 border border-primary/20">
@@ -355,11 +427,27 @@ export const SystemAudio = (props: useSystemAudioType) => {
                       onIgnore={ignoreContinuousRecording}
                     />
 
+                    {capturing && liveCaptionsEnabled && liveCaptionsAvailable && (
+                      <p className="text-[10px] text-muted-foreground">
+                        Live captions · System: {systemLiveStatus} · Mic: {micEnabled ? micLiveStatus : "muted"}
+                        {(systemLiveStatus === "fallback" || (micEnabled && micLiveStatus === "fallback"))
+                          ? " · Batch transcript still active" : ""}
+                      </p>
+                    )}
+
                     {/* AI Response */}
                     <ResultsSection
                       lastTranscription={lastTranscription}
+                      lastAnswerPrompt={lastAnswerPrompt}
+                      partialSystemCaption={partialSystemCaption}
+                      partialMicCaption={partialMicCaption}
                       lastAIResponse={lastAIResponse}
                       isAIProcessing={isAIProcessing}
+                      deepAIResponse={deepAIResponse}
+                      isDeepProcessing={isDeepProcessing}
+                      deepAnswerStatus={deepAnswerStatus}
+                      deepAnswerError={deepAnswerError}
+                      goDeeper={goDeeper}
                       conversation={conversation}
                       conversationMode={conversationMode}
                       setConversationMode={setConversationMode}
@@ -384,6 +472,16 @@ export const SystemAudio = (props: useSystemAudioType) => {
                       setAutoResponseMode={setAutoResponseMode}
                       autoResponsePace={autoResponsePace}
                       setAutoResponsePace={setAutoResponsePace}
+                      jevShadowEnabled={jevShadowEnabled}
+                      jevShadowAvailable={jevShadowAvailable}
+                      jevShadowStatus={jevShadowStatus}
+                      setJevShadowEnabled={setJevShadowEnabled}
+                      sessionPlannerEnabled={sessionPlannerEnabled}
+                      sessionPlannerAvailable={sessionPlannerAvailable}
+                      sessionPlannerStatus={sessionPlannerStatus}
+                      setSessionPlannerEnabled={setSessionPlannerEnabled}
+                      deepModelOverride={deepModelOverride}
+                      setDeepModelOverride={setDeepModelOverride}
                     />
 
                     {/* Help/Keyboard Shortcuts */}
@@ -412,5 +510,6 @@ export const SystemAudio = (props: useSystemAudioType) => {
         </PopoverContent>
       )}
     </Popover>
+    </>
   );
 };

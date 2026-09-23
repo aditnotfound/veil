@@ -276,7 +276,7 @@ If the answer is already solid, reply with exactly: NO_FOLLOWUP`,
         kind: "note",
         text: answer,
         tags: ["profile", topic.tag],
-        apiKey,
+        apiKey: selectedAIProvider.provider === "openai" ? apiKey : "",
       });
 
       let topicsSoFar: string[] = [];

@@ -28,11 +28,11 @@ async function fetchPluelySTT(audio: File | Blob): Promise<string> {
     if (response.success && response.transcription) {
       return response.transcription;
     } else {
-      return response.error || "Transcription failed";
+      throw new Error(response.error || "Transcription failed");
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    return `Managed STT Error: ${errorMessage}`;
+    throw new Error(`Managed STT Error: ${errorMessage}`);
   }
 }
 
@@ -46,7 +46,7 @@ export interface STTParams {
 }
 
 /**
- * Transcribes audio and returns either the transcription or an error/warning message as a single string.
+ * Transcribes audio and throws on provider or parsing errors.
  */
 export async function fetchSTT(params: STTParams): Promise<string> {
   let warnings: string[] = [];
@@ -228,7 +228,7 @@ export async function fetchSTT(params: STTParams): Promise<string> {
     const transcription = (getByPath(data, path) || "").trim();
 
     if (!transcription) {
-      return [...warnings, "No transcription found"].join("; ");
+      throw new Error("No transcription found");
     }
 
     // Return transcription with any warnings

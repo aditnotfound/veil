@@ -1,0 +1,16 @@
+{
+  "description": "Synthetic smoke fixture; not a quality or latency benchmark",
+  "sessions": [
+    {
+      "id": "synthetic-1",
+      "negativeDurationMs": 900000,
+      "turns": [
+        { "id": "t1", "sessionId": "synthetic-1", "source": "system", "sequence": 1, "startedAt": 1000, "endedAt": 2000, "text": "Hello everyone", "usefulSuggestion": false },
+        { "id": "t2", "sessionId": "synthetic-1", "source": "system", "sequence": 2, "startedAt": 3000, "endedAt": 4000, "text": "What is the research question?", "usefulSuggestion": true, "answerSucceeded": true },
+        { "id": "t3", "sessionId": "synthetic-1", "source": "system", "sequence": 3, "startedAt": 5000, "endedAt": 6000, "text": "What is the weather like?", "usefulSuggestion": false },
+        { "id": "t4", "sessionId": "synthetic-1", "source": "system", "sequence": 4, "startedAt": 7000, "endedAt": 8000, "text": "We should review this later", "usefulSuggestion": false },
+        { "id": "t5", "sessionId": "synthetic-1", "source": "mic", "sequence": 1, "startedAt": 9000, "endedAt": 10000, "text": "Explain the method", "usefulSuggestion": false }
+      ]
+    }
+  ]
+}

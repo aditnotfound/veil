@@ -9,7 +9,7 @@ use std::collections::VecDeque;
 use std::io::Cursor;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Listener, Manager};
 use tauri_plugin_shell::ShellExt;
 use tracing::{error, warn};
@@ -28,6 +28,60 @@ pub struct VadConfig {
     pub max_recording_duration_secs: u64,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SystemSpeechSegment {
+    sequence: u64,
+    audio_base64: String,
+    speech_ended_at: Option<u64>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CallAudioFrame {
+    sample_rate: u32,
+    pcm_base64: String,
+}
+
+fn emit_pcm_frame(app: &AppHandle, sample_rate: u32, samples: &[f32]) {
+    let mut bytes = Vec::with_capacity(samples.len() * 2);
+    for &sample in samples {
+        let clamped = sample.clamp(-1.0, 1.0);
+        let value = (clamped * i16::MAX as f32) as i16;
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    let _ = app.emit(
+        "call-system-audio-frame",
+        CallAudioFrame {
+            sample_rate,
+            pcm_base64: B64.encode(bytes),
+        },
+    );
+}
+
+fn wall_clock_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn emit_speech_segment(app: &AppHandle, audio_base64: String, speech_ended_at: Option<u64>) {
+    let sequence = app
+        .state::<crate::AudioState>()
+        .segment_sequence
+        .fetch_add(1, Ordering::SeqCst)
+        + 1;
+    let segment = SystemSpeechSegment {
+        sequence,
+        audio_base64: audio_base64.clone(),
+        speech_ended_at,
+    };
+    let _ = app.emit("call-speech-segment", segment);
+    // Preserve the original event for any existing Listen integrations.
+    let _ = app.emit("speech-detected", audio_base64);
+}
+
 impl Default for VadConfig {
     fn default() -> Self {
         Self {
@@ -35,7 +89,7 @@ impl Default for VadConfig {
             hop_size: 1024,
             sensitivity_rms: 0.012, // Much less sensitive - only real speech
             peak_threshold: 0.035,  // Higher threshold - filters clicks/noise
-            silence_chunks: 45,     // ~1.0s of silence before stopping
+            silence_chunks: 20,     // ~0.46s at the nominal 44.1 kHz reference rate
             min_speech_chunks: 7,   // ~0.16s - captures short answers
             pre_speech_chunks: 12,  // ~0.27s - enough to catch word start
             noise_gate_threshold: 0.003, // Stronger noise filtering
@@ -49,6 +103,7 @@ pub async fn start_system_audio_capture(
     app: AppHandle,
     vad_config: Option<VadConfig>,
     device_id: Option<String>,
+    live_captions: Option<bool>,
 ) -> Result<(), String> {
     let state = app.state::<crate::AudioState>();
 
@@ -67,6 +122,7 @@ pub async fn start_system_audio_capture(
 
     // Update VAD config if provided
     if let Some(config) = vad_config {
+        validate_vad_config(&config)?;
         let mut vad_cfg = state
             .vad_config
             .lock()
@@ -92,6 +148,10 @@ pub async fn start_system_audio_capture(
     }
 
     let app_clone = app.clone();
+    state
+        .live_caption_frames
+        .store(live_captions.unwrap_or(false), Ordering::Relaxed);
+    let live_caption_frames = state.live_caption_frames.clone();
     let vad_config = state
         .vad_config
         .lock()
@@ -110,9 +170,23 @@ pub async fn start_system_audio_capture(
     let state_clone = app.state::<crate::AudioState>();
     let task = tokio::spawn(async move {
         if vad_config.enabled {
-            run_vad_capture(app_clone.clone(), stream, sr, vad_config).await;
+            run_vad_capture(
+                app_clone.clone(),
+                stream,
+                sr,
+                vad_config,
+                live_caption_frames,
+            )
+            .await;
         } else {
-            run_continuous_capture(app_clone.clone(), stream, sr, vad_config).await;
+            run_continuous_capture(
+                app_clone.clone(),
+                stream,
+                sr,
+                vad_config,
+                live_caption_frames,
+            )
+            .await;
         }
 
         let state = app_clone.state::<crate::AudioState>();
@@ -137,18 +211,32 @@ async fn run_vad_capture(
     stream: impl StreamExt<Item = f32> + Unpin,
     sr: u32,
     config: VadConfig,
+    live_captions: Arc<AtomicBool>,
 ) {
     let mut stream = stream;
     let mut buffer: VecDeque<f32> = VecDeque::new();
-    let mut pre_speech: VecDeque<f32> =
-        VecDeque::with_capacity(config.pre_speech_chunks * config.hop_size);
+    let silence_limit = scaled_vad_chunks(config.silence_chunks, sr);
+    let min_speech_limit = scaled_vad_chunks(config.min_speech_chunks, sr);
+    let pre_speech_limit = scaled_vad_chunks(config.pre_speech_chunks, sr);
+    let mut pre_speech: VecDeque<f32> = VecDeque::with_capacity(pre_speech_limit * config.hop_size);
     let mut speech_buffer = Vec::new();
     let mut in_speech = false;
     let mut silence_chunks = 0;
     let mut speech_chunks = 0;
+    let mut last_speech_at = None;
     let max_samples = sr as usize * 30; // 30s safety cap per utterance
+    let mut live_frame = Vec::with_capacity((sr / 5) as usize);
 
     while let Some(sample) = stream.next().await {
+        if live_captions.load(Ordering::Relaxed) {
+            live_frame.push(sample);
+            if live_frame.len() >= (sr / 5) as usize {
+                emit_pcm_frame(&app, sr, &live_frame);
+                live_frame.clear();
+            }
+        } else {
+            live_frame.clear();
+        }
         buffer.push_back(sample);
 
         // Process in fixed chunks for VAD analysis
@@ -167,6 +255,7 @@ async fn run_vad_capture(
             let is_speech = rms > config.sensitivity_rms || peak > config.peak_threshold;
 
             if is_speech {
+                last_speech_at = Some(wall_clock_ms());
                 if !in_speech {
                     // Speech START detected
                     in_speech = true;
@@ -187,11 +276,12 @@ async fn run_vad_capture(
                     let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
                     if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
                         // let duration = speech_buffer.len() as f32 / sr as f32;
-                        let _ = app.emit("speech-detected", b64);
+                        emit_speech_segment(&app, b64, last_speech_at);
                     }
                     speech_buffer.clear();
                     in_speech = false;
                     speech_chunks = 0;
+                    last_speech_at = None;
                 }
             } else {
                 // Silence detected
@@ -202,9 +292,9 @@ async fn run_vad_capture(
                     speech_buffer.extend_from_slice(&mono);
 
                     // Check if silence duration exceeds threshold
-                    if silence_chunks >= config.silence_chunks {
+                    if silence_chunks >= silence_limit {
                         // Verify minimum speech duration
-                        if speech_chunks >= config.min_speech_chunks && !speech_buffer.is_empty() {
+                        if speech_chunks >= min_speech_limit && !speech_buffer.is_empty() {
                             // Trim trailing silence (keep ~0.15s for natural ending)
                             let silence_duration_samples = silence_chunks * config.hop_size;
                             let keep_silence_samples = (sr as usize) * 15 / 100; // 0.15s
@@ -219,7 +309,7 @@ async fn run_vad_capture(
                             let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
                             if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
                                 // let duration = speech_buffer.len() as f32 / sr as f32;
-                                let _ = app.emit("speech-detected", b64);
+                                emit_speech_segment(&app, b64, last_speech_at);
                             } else {
                                 error!("Failed to encode speech to WAV");
                                 let _ = app.emit("audio-encoding-error", "Failed to encode speech");
@@ -236,18 +326,21 @@ async fn run_vad_capture(
                         in_speech = false;
                         silence_chunks = 0;
                         speech_chunks = 0;
+                        last_speech_at = None;
                     }
                 } else {
                     // Not in speech yet - maintain rolling pre-speech buffer
                     pre_speech.extend(mono.into_iter());
 
                     // Trim excess (maintain fixed size)
-                    while pre_speech.len() > config.pre_speech_chunks * config.hop_size {
+                    while pre_speech.len() > pre_speech_limit * config.hop_size {
                         pre_speech.pop_front();
                     }
 
                     // Periodically shrink capacity to prevent memory bloat
-                    if pre_speech.len() == config.pre_speech_chunks * config.hop_size {
+                    if pre_speech_limit > 0
+                        && pre_speech.len() == pre_speech_limit * config.hop_size
+                    {
                         pre_speech.shrink_to_fit();
                     }
                 }
@@ -262,6 +355,7 @@ async fn run_continuous_capture(
     stream: impl StreamExt<Item = f32> + Unpin,
     sr: u32,
     config: VadConfig,
+    live_captions: Arc<AtomicBool>,
 ) {
     let mut stream = stream;
     let max_samples = (sr as u64 * config.max_recording_duration_secs) as usize;
@@ -270,6 +364,7 @@ async fn run_continuous_capture(
     let mut audio_buffer = Vec::with_capacity(max_samples);
     let start_time = Instant::now();
     let max_duration = Duration::from_secs(config.max_recording_duration_secs);
+    let mut live_frame = Vec::with_capacity((sr / 5) as usize);
 
     // Atomic flag for manual stop
     let stop_flag = Arc::new(AtomicBool::new(false));
@@ -302,6 +397,15 @@ async fn run_continuous_capture(
                         }
 
                         audio_buffer.push(sample);
+                        if live_captions.load(Ordering::Relaxed) {
+                            live_frame.push(sample);
+                            if live_frame.len() >= (sr / 5) as usize {
+                                emit_pcm_frame(&app, sr, &live_frame);
+                                live_frame.clear();
+                            }
+                        } else {
+                            live_frame.clear();
+                        }
 
                         let elapsed = start_time.elapsed();
 
@@ -344,7 +448,7 @@ async fn run_continuous_capture(
 
         match samples_to_wav_b64(sr, &cleaned_audio) {
             Ok(b64) => {
-                let _ = app.emit("speech-detected", b64);
+                emit_speech_segment(&app, b64, None);
             }
             Err(e) => {
                 error!("Failed to encode continuous audio: {}", e);
@@ -362,6 +466,10 @@ async fn run_continuous_capture(
 // Apply noise gate
 fn apply_noise_gate(samples: &[f32], threshold: f32) -> Vec<f32> {
     const KNEE_RATIO: f32 = 3.0; // Compression ratio for soft knee
+
+    if threshold <= 0.0 {
+        return samples.to_vec();
+    }
 
     samples
         .iter()
@@ -459,8 +567,80 @@ fn samples_to_wav_b64(sample_rate: u32, mono_f32: &[f32]) -> Result<String, Stri
 }
 
 #[tauri::command]
+pub fn set_call_live_captions(app: AppHandle, enabled: bool) {
+    app.state::<crate::AudioState>()
+        .live_caption_frames
+        .store(enabled, Ordering::Relaxed);
+}
+
+const NOMINAL_VAD_SAMPLE_RATE: u32 = 44_100;
+
+fn scaled_vad_chunks(nominal_chunks: usize, sample_rate: u32) -> usize {
+    if nominal_chunks == 0 {
+        return 0;
+    }
+    ((nominal_chunks as u64 * sample_rate as u64 + NOMINAL_VAD_SAMPLE_RATE as u64 - 1)
+        / NOMINAL_VAD_SAMPLE_RATE as u64)
+        .max(1) as usize
+}
+
+fn validate_vad_config(config: &VadConfig) -> Result<(), String> {
+    if !(256..=8192).contains(&config.hop_size)
+        || !(1..=1000).contains(&config.silence_chunks)
+        || !(1..=200).contains(&config.min_speech_chunks)
+        || config.pre_speech_chunks > 200
+        || !(1..=3600).contains(&config.max_recording_duration_secs)
+        || ![
+            config.sensitivity_rms,
+            config.peak_threshold,
+            config.noise_gate_threshold,
+        ]
+        .iter()
+        .all(|value| value.is_finite() && (0.0..=1.0).contains(value))
+    {
+        return Err("Invalid VAD configuration".to_string());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod vad_config_tests {
+    use super::{scaled_vad_chunks, validate_vad_config, VadConfig};
+
+    #[test]
+    fn silence_duration_tracks_device_sample_rate() {
+        for sample_rate in [16_000, 44_100, 48_000] {
+            let chunks = scaled_vad_chunks(20, sample_rate);
+            let duration = chunks as f64 * 1024.0 / sample_rate as f64;
+            assert!((duration - 20.0 * 1024.0 / 44_100.0).abs() < 0.065);
+        }
+        assert_eq!(scaled_vad_chunks(0, 48_000), 0);
+    }
+
+    #[test]
+    fn rejects_config_that_cannot_run_safely() {
+        let mut config = VadConfig::default();
+        assert!(validate_vad_config(&config).is_ok());
+        config.hop_size = 0;
+        assert!(validate_vad_config(&config).is_err());
+        config.hop_size = 1024;
+        config.sensitivity_rms = f32::NAN;
+        assert!(validate_vad_config(&config).is_err());
+    }
+
+    #[test]
+    fn zero_noise_gate_preserves_samples() {
+        assert_eq!(
+            super::apply_noise_gate(&[0.0, 0.25, -0.5], 0.0),
+            vec![0.0, 0.25, -0.5]
+        );
+    }
+}
+
+#[tauri::command]
 pub async fn stop_system_audio_capture(app: AppHandle) -> Result<(), String> {
     let state = app.state::<crate::AudioState>();
+    state.live_caption_frames.store(false, Ordering::Relaxed);
 
     // Abort task in separate scope (Send trait fix)
     {
@@ -569,13 +749,7 @@ pub async fn get_vad_config(app: AppHandle) -> Result<VadConfig, String> {
 
 #[tauri::command]
 pub async fn update_vad_config(app: AppHandle, config: VadConfig) -> Result<(), String> {
-    // Validate config
-    if config.sensitivity_rms < 0.0 || config.sensitivity_rms > 1.0 {
-        return Err("Invalid sensitivity_rms: must be 0.0-1.0".to_string());
-    }
-    if config.max_recording_duration_secs > 3600 {
-        return Err("Invalid max_recording_duration_secs: must be <= 3600 (1 hour)".to_string());
-    }
+    validate_vad_config(&config)?;
 
     let state = app.state::<crate::AudioState>();
     *state

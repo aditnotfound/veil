@@ -97,26 +97,17 @@ const Knowledge = () => {
     }
   };
 
-  const requireApiKey = () => {
-    if (!apiKey) {
-      throw new Error(
-        "Select an AI provider with an API key before ingesting knowledge."
-      );
-    }
-  };
-
   const handleAddNote = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       setIsSaving(true);
       setError(null);
-      requireApiKey();
       await ingestKnowledgeSource({
         title: noteTitle.trim() || "Untitled note",
         kind: "note",
         text: noteBody,
         tags: parseCommaTags(noteTags),
-        apiKey,
+        apiKey: selectedAIProvider?.provider === "openai" ? apiKey : "",
       });
       setNoteTitle("");
       setNoteTags("");
@@ -137,14 +128,13 @@ const Knowledge = () => {
     try {
       setIsSaving(true);
       setError(null);
-      requireApiKey();
       const text = await extractTextFromFile(file);
       await ingestKnowledgeSource({
         title: file.name,
         kind: "file",
         text,
         tags: [],
-        apiKey,
+        apiKey: selectedAIProvider?.provider === "openai" ? apiKey : "",
       });
       await loadSources();
     } catch (err) {
@@ -172,14 +162,11 @@ const Knowledge = () => {
             </div>
           )}
 
-          {!apiKey && (
-            <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-3">
-              <p className="text-sm text-amber-700 dark:text-amber-400">
-                An AI provider API key is required to ingest notes and files
-                (embeddings). Configure one in Dev space.
-              </p>
-            </div>
-          )}
+          <p className="text-xs text-muted-foreground">
+            Notes and files are searchable locally without an API key. With an
+            OpenAI answer provider selected, ingestion also sends chunks to
+            OpenAI for embeddings; the local search index remains available.
+          </p>
 
           <div className="space-y-4">
             <div className="flex items-center justify-between p-4 border rounded-xl">

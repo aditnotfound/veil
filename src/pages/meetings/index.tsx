@@ -5,6 +5,7 @@ import {
   Empty,
   Input,
   Label,
+  Markdown,
   Textarea,
 } from "@/components";
 import { PageLayout } from "@/layouts";
@@ -27,21 +28,40 @@ import {
   Trash2,
 } from "lucide-react";
 import moment from "moment";
+import { correctCallUtterance, deleteCallSession, getCallSessionLedger, getCallSessionPlans, getCallSuggestions, getCallUtteranceRevisions, getCallUtterances, listCallSessions, type CallUtteranceRevision, type StoredCallSession } from "@/lib/database/call-session.action";
+import { formatCallLedger, formatCallPlans, formatCallSuggestions } from "@/lib/call/session-review";
+import type { FinalUtterance } from "@/lib/call/session-core";
+
+function formatCallTranscript(utterances: FinalUtterance[]): string {
+  return utterances.map((utterance) =>
+    `[${moment(utterance.startedAt).format("h:mm:ss A")}] ${utterance.source === "mic" ? "Mic" : "System"}: ${utterance.text}`
+  ).join("\n");
+}
 
 const Meetings = () => {
   const { selectedAIProvider, allAiProviders, systemPrompt } = useApp();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [callSessions, setCallSessions] = useState<StoredCallSession[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
+  const [deletingCallSessionId, setDeletingCallSessionId] = useState<string | null>(null);
 
   const [formTitle, setFormTitle] = useState("");
   const [formTranscript, setFormTranscript] = useState("");
   const [formNotes, setFormNotes] = useState("");
   const [formSummary, setFormSummary] = useState("");
+  const [formSuggestions, setFormSuggestions] = useState("");
+  const [formLedger, setFormLedger] = useState("");
+  const [formPlans, setFormPlans] = useState("");
+  const [sourceCallSessionId, setSourceCallSessionId] = useState<string | null>(null);
+  const [sourceUtterances, setSourceUtterances] = useState<FinalUtterance[]>([]);
+  const [sourceRevisions, setSourceRevisions] = useState<CallUtteranceRevision[]>([]);
+  const [correctionDrafts, setCorrectionDrafts] = useState<Record<string, string>>({});
+  const [savingCorrectionId, setSavingCorrectionId] = useState<string | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -53,6 +73,7 @@ const Meetings = () => {
       setError(null);
       const list = await listMeetings();
       setMeetings(list);
+      setCallSessions(await listCallSessions());
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to load meetings"
@@ -75,6 +96,13 @@ const Meetings = () => {
       setFormTranscript(selected.transcript);
       setFormNotes(selected.notes);
       setFormSummary(selected.summary);
+      setFormSuggestions("");
+      setFormLedger("");
+      setFormPlans("");
+      setSourceCallSessionId(null);
+      setSourceUtterances([]);
+      setSourceRevisions([]);
+      setCorrectionDrafts({});
     }
   }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps -- sync form when selection changes
 
@@ -85,12 +113,26 @@ const Meetings = () => {
     setFormTranscript("");
     setFormNotes("");
     setFormSummary("");
+    setFormSuggestions("");
+    setFormLedger("");
+    setFormPlans("");
+    setSourceCallSessionId(null);
+    setSourceUtterances([]);
+    setSourceRevisions([]);
+    setCorrectionDrafts({});
     setError(null);
   };
 
   const openMeeting = (id: string) => {
     setIsCreating(false);
     setSelectedId(id);
+    setFormSuggestions("");
+    setFormLedger("");
+    setFormPlans("");
+    setSourceCallSessionId(null);
+    setSourceUtterances([]);
+    setSourceRevisions([]);
+    setCorrectionDrafts({});
     setError(null);
   };
 
@@ -99,6 +141,13 @@ const Meetings = () => {
     setIsSummarizing(false);
     setSelectedId(null);
     setIsCreating(false);
+    setFormSuggestions("");
+    setFormLedger("");
+    setFormPlans("");
+    setSourceCallSessionId(null);
+    setSourceUtterances([]);
+    setSourceRevisions([]);
+    setCorrectionDrafts({});
     setError(null);
   };
 
@@ -119,6 +168,91 @@ const Meetings = () => {
       setError(err instanceof Error ? err.message : "Failed to create meeting");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleOpenCallSession = async (session: StoredCallSession) => {
+    try {
+      setError(null);
+      const [utterances, suggestions, ledger, plans, revisions] = await Promise.all([
+        getCallUtterances(session.id),
+        getCallSuggestions(session.id),
+        getCallSessionLedger(session.id),
+        getCallSessionPlans(session.id),
+        getCallUtteranceRevisions(session.id),
+      ]);
+      setSelectedId(null);
+      setIsCreating(true);
+      setFormTitle(`Listen session — ${moment(session.started_at).format("MMM D, YYYY h:mm A")}`);
+      setFormTranscript(formatCallTranscript(utterances));
+      setFormNotes("");
+      setFormSummary("");
+      setFormSuggestions(formatCallSuggestions(
+        suggestions,
+        (timestamp) => moment(timestamp).format("h:mm:ss A")
+      ));
+      setFormLedger(formatCallLedger(
+        ledger,
+        (timestamp) => moment(timestamp).format("h:mm:ss A")
+      ));
+      setFormPlans(formatCallPlans(
+        plans,
+        (timestamp) => moment(timestamp).format("h:mm:ss A")
+      ));
+      setSourceCallSessionId(session.id);
+      setSourceUtterances(utterances);
+      setSourceRevisions(revisions);
+      setCorrectionDrafts(Object.fromEntries(utterances.map((item) => [item.id, item.text])));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to open Listen session");
+    }
+  };
+
+  const handleDeleteCallSession = async (session: StoredCallSession) => {
+    if (!window.confirm("Permanently delete this Listen session, transcript, candidate memory, saved cards, and deep drafts? Any meeting saved from it remains separate.")) return;
+    try {
+      setDeletingCallSessionId(session.id);
+      setError(null);
+      await deleteCallSession(session.id);
+      setCallSessions((prev) => prev.filter((item) => item.id !== session.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete Listen session");
+    } finally {
+      setDeletingCallSessionId(null);
+    }
+  };
+
+  const handleCorrectUtterance = async (utteranceId: string) => {
+    if (!sourceCallSessionId) return;
+    const text = correctionDrafts[utteranceId] ?? "";
+    try {
+      setSavingCorrectionId(utteranceId);
+      setError(null);
+      const correction = await correctCallUtterance(sourceCallSessionId, utteranceId, text);
+      const corrected = correction.utterance;
+      const nextUtterances = sourceUtterances.map((item) =>
+        item.id === utteranceId ? corrected : item
+      );
+      const [suggestions, ledger, plans, revisions] = await Promise.all([
+        getCallSuggestions(sourceCallSessionId),
+        getCallSessionLedger(sourceCallSessionId),
+        getCallSessionPlans(sourceCallSessionId),
+        getCallUtteranceRevisions(sourceCallSessionId),
+      ]);
+      setSourceUtterances(nextUtterances);
+      setSourceRevisions(revisions);
+      setCorrectionDrafts((previous) => ({ ...previous, [utteranceId]: corrected.text }));
+      setFormTranscript(formatCallTranscript(nextUtterances));
+      setFormSuggestions(formatCallSuggestions(suggestions, (timestamp) => moment(timestamp).format("h:mm:ss A")));
+      setFormLedger(formatCallLedger(ledger, (timestamp) => moment(timestamp).format("h:mm:ss A")));
+      setFormPlans(formatCallPlans(plans, (timestamp) => moment(timestamp).format("h:mm:ss A")));
+      if (!correction.ledgerRebuilt) {
+        setError("Correction saved, but its candidate session memory could not be rebuilt.");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to correct transcript source");
+    } finally {
+      setSavingCorrectionId(null);
     }
   };
 
@@ -209,6 +343,18 @@ const Meetings = () => {
 ## Transcript
 
 ${formTranscript || "_No transcript_"}
+
+## Veil suggestions
+
+${formSuggestions || "_No saved suggestions_"}
+
+## Candidate session memory
+
+${formLedger || "_No candidate session memory_"}
+
+## Candidate asynchronous plans
+
+${formPlans || "_No candidate asynchronous plans_"}
 
 ## Summary
 
@@ -318,6 +464,103 @@ ${formNotes || "_No notes_"}
             />
           </div>
 
+          {sourceCallSessionId && (
+            <details className="rounded-lg border border-border/50 p-3">
+              <summary className="cursor-pointer text-sm font-medium">
+                Correct source transcript ({sourceUtterances.length} utterances)
+              </summary>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Corrections are audited. Saving one rebuilds its local memory candidates, removes session planner drafts, and marks answers at or after that turn stale.
+              </p>
+              <div className="mt-3 max-h-96 space-y-3 overflow-y-auto pr-1">
+                {sourceUtterances.map((utterance) => {
+                  const draft = correctionDrafts[utterance.id] ?? utterance.text;
+                  const changed = draft.replace(/\s+/g, " ").trim() !== utterance.text;
+                  return (
+                    <Card key={utterance.id} className="gap-2 p-3 shadow-none">
+                      <p className="text-[11px] text-muted-foreground">
+                        [C:{utterance.id}] · {moment(utterance.startedAt).format("h:mm:ss A")} · {utterance.source === "mic" ? "Mic" : "System"}
+                      </p>
+                      <Textarea
+                        value={draft}
+                        onChange={(event) => setCorrectionDrafts((previous) => ({
+                          ...previous,
+                          [utterance.id]: event.target.value,
+                        }))}
+                        className="min-h-20 text-xs"
+                        disabled={savingCorrectionId === utterance.id}
+                      />
+                      <div className="flex justify-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={!changed || !draft.trim() || savingCorrectionId !== null}
+                          onClick={() => void handleCorrectUtterance(utterance.id)}
+                        >
+                          {savingCorrectionId === utterance.id && <Loader2 className="size-4 animate-spin" />}
+                          Save correction
+                        </Button>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+              {sourceRevisions.length > 0 && (
+                <div className="mt-3 space-y-1 border-t border-border/50 pt-3">
+                  <p className="text-xs font-medium">Revision history</p>
+                  {sourceRevisions.map((revision) => (
+                    <p key={revision.id} className="text-[11px] text-muted-foreground">
+                      [C:{revision.utteranceId}] · {moment(revision.correctedAt).format("h:mm:ss A")} · “{revision.previousText}” → “{revision.correctedText}”
+                    </p>
+                  ))}
+                </div>
+              )}
+            </details>
+          )}
+
+          {formSuggestions && (
+            <div className="space-y-2">
+              <div>
+                <Label>Saved Veil suggestions</Label>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Generated text is shown separately from the transcript and your notes.
+                </p>
+              </div>
+              <Card className="shadow-none p-4 prose prose-sm max-w-none dark:prose-invert">
+                <Markdown>{formSuggestions}</Markdown>
+              </Card>
+            </div>
+          )}
+
+          {formLedger && (
+            <div className="space-y-2">
+              <div>
+                <Label>Candidate session memory</Label>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Exact transcript excerpts selected locally. Labels are hints and do not verify that an excerpt is true or current.
+                </p>
+              </div>
+              <Card className="shadow-none p-4 prose prose-sm max-w-none dark:prose-invert">
+                <Markdown>{formLedger}</Markdown>
+              </Card>
+            </div>
+          )}
+
+          {formPlans && (
+            <div className="space-y-2">
+              <div>
+                <Label>Candidate asynchronous plans</Label>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Model-generated navigation drafts. They are unverified and shown with the transcript sources they cited.
+                </p>
+              </div>
+              <Card className="shadow-none p-4 prose prose-sm max-w-none dark:prose-invert">
+                <Markdown>{formPlans}</Markdown>
+              </Card>
+            </div>
+          )}
+
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <Label htmlFor="meeting-summary">Summary</Label>
@@ -357,15 +600,58 @@ ${formNotes || "_No notes_"}
             />
           </div>
         </div>
-      ) : meetings.length === 0 ? (
+      ) : meetings.length === 0 && callSessions.length === 0 ? (
         <Empty
           isLoading={isLoading}
           icon={CalendarDays}
           title="No meetings yet"
-          description="Create a meeting and paste a Listen transcript to get started"
+          description="Create a meeting or start a Listen session to get started"
         />
       ) : (
         <div className="grid grid-cols-1 gap-3">
+          {callSessions.length > 0 && (
+            <>
+              <p className="text-xs font-medium text-muted-foreground">Listen sessions</p>
+              {callSessions.map((session) => (
+                <Card
+                  key={session.id}
+                  className="shadow-none p-4 gap-0 cursor-pointer transition-all hover:!border-primary/50"
+                  onClick={() => handleOpenCallSession(session)}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium">
+                        {moment(session.started_at).format("MMM D, YYYY h:mm A")}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {session.utterance_count} utterances · {session.ledger_count} memory candidates · {session.planner_count} plans · {session.answer_count} cards · {session.deep_answer_count} deep drafts
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 shrink-0"
+                      disabled={deletingCallSessionId === session.id}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleDeleteCallSession(session);
+                      }}
+                      title="Delete Listen session"
+                      aria-label={`Delete Listen session from ${moment(session.started_at).format("MMM D, YYYY h:mm A")}`}
+                    >
+                      {deletingCallSessionId === session.id
+                        ? <Loader2 className="size-4 animate-spin" />
+                        : <Trash2 className="size-4 text-muted-foreground" />}
+                    </Button>
+                  </div>
+                </Card>
+              ))}
+            </>
+          )}
+          {meetings.length > 0 && (
+            <p className="text-xs font-medium text-muted-foreground">Saved meetings</p>
+          )}
           {meetings.map((meeting) => (
             <Card
               key={meeting.id}

@@ -16,6 +16,7 @@ export interface UseSettingsReturn {
     provider: string;
     variables: Record<string, string>;
   };
+  providerStorageError: string;
   onSetSelectedAIProvider: (provider: {
     provider: string;
     variables: Record<string, string>;

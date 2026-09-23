@@ -7,6 +7,13 @@ import {
 import { getPlatform, safeLocalStorage, trackAppStart } from "@/lib";
 import { getShortcutsConfig } from "@/lib/storage";
 import {
+  loadProviderSelection,
+  saveProviderSelection,
+  type ProviderKind,
+  type ProviderVault,
+  type SelectedProvider,
+} from "@/lib/storage/provider-secrets";
+import {
   getCustomizableState,
   setCustomizableState,
   updateAppIconVisibility,
@@ -28,8 +35,20 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from "react";
+
+const providerVault: ProviderVault = {
+  get: (kind) => invoke<string | null>("get_provider_secret", { kind }),
+  save: (kind, secret) => invoke<void>("save_provider_secret", { kind, secret }),
+  remove: (kind) => invoke<void>("remove_provider_secret", { kind }),
+};
+
+const selectedProviderKey = {
+  ai: STORAGE_KEYS.SELECTED_AI_PROVIDER,
+  stt: STORAGE_KEYS.SELECTED_STT_PROVIDER,
+};
 
 const validateAndProcessCurlProviders = (
   providersJson: string,
@@ -119,6 +138,54 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     provider: "",
     variables: {},
   });
+  const [providerStorageErrors, setProviderStorageErrors] = useState<Record<ProviderKind, string>>({ ai: "", stt: "" });
+  const providerStorageError = Object.values(providerStorageErrors).filter(Boolean).join(" ");
+  const providerLoadEpochRef = useRef(0);
+  const providerReloadRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingProviderRef = useRef<Record<ProviderKind, SelectedProvider | null>>({ ai: null, stt: null });
+  const savingProviderRef = useRef<Record<ProviderKind, boolean>>({ ai: false, stt: false });
+
+  const reloadProviderSelections = () => {
+    const epoch = ++providerLoadEpochRef.current;
+    providerReloadRef.current = Promise.allSettled([
+      loadProviderSelection("ai", selectedProviderKey.ai, window.localStorage, providerVault),
+      loadProviderSelection("stt", selectedProviderKey.stt, window.localStorage, providerVault),
+    ]).then(([ai, stt]) => {
+      if (providerLoadEpochRef.current !== epoch) return;
+      if (ai.status === "fulfilled") setSelectedAIProvider(ai.value);
+      if (stt.status === "fulfilled") setSelectedSttProvider(stt.value);
+      setProviderStorageErrors({
+        ai: ai.status === "rejected" ? "AI provider credentials could not be loaded from the OS store." : "",
+        stt: stt.status === "rejected" ? "STT provider credentials could not be loaded from the OS store." : "",
+      });
+    });
+  };
+
+  const persistProviderSelection = (kind: ProviderKind, selected: SelectedProvider) => {
+    pendingProviderRef.current[kind] = selected;
+    if (savingProviderRef.current[kind]) return;
+    savingProviderRef.current[kind] = true;
+    const drain = async () => {
+      while (pendingProviderRef.current[kind]) {
+        const latest = pendingProviderRef.current[kind]!;
+        pendingProviderRef.current[kind] = null;
+        try {
+          await providerReloadRef.current;
+          await saveProviderSelection(
+            kind, selectedProviderKey[kind], latest, window.localStorage, providerVault
+          );
+          setProviderStorageErrors((errors) => ({ ...errors, [kind]: "" }));
+        } catch {
+          setProviderStorageErrors((errors) => ({
+            ...errors,
+            [kind]: `${kind.toUpperCase()} provider setting could not be saved to the OS credential store.`,
+          }));
+        }
+      }
+      savingProviderRef.current[kind] = false;
+    };
+    void drain();
+  };
 
   const [screenshotConfiguration, setScreenshotConfiguration] =
     useState<ScreenshotConfig>({
@@ -243,22 +310,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
     setCustomSttProviders(sttList);
 
-    // Load selected AI provider
-    const savedSelectedAi = safeLocalStorage.getItem(
-      STORAGE_KEYS.SELECTED_AI_PROVIDER
-    );
-    if (savedSelectedAi) {
-      setSelectedAIProvider(JSON.parse(savedSelectedAi));
-    }
-
-    // Load selected STT provider
-    const savedSelectedStt = safeLocalStorage.getItem(
-      STORAGE_KEYS.SELECTED_STT_PROVIDER
-    );
-    if (savedSelectedStt) {
-      setSelectedSttProvider(JSON.parse(savedSelectedStt));
-    }
-
     // Load customizable state
     const customizableState = getCustomizableState();
     setCustomizable(customizableState);
@@ -352,6 +403,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     };
     // Load data
     loadData();
+    reloadProviderSelections();
     initializeApp();
   }, []);
 
@@ -435,6 +487,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   // Listen to storage events for real-time sync (e.g., multi-tab)
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEYS.SELECTED_AI_PROVIDER || e.key === STORAGE_KEYS.SELECTED_STT_PROVIDER) {
+        reloadProviderSelections();
+        return;
+      }
       // Sync supportsImages across windows
       if (e.key === STORAGE_KEYS.SUPPORTS_IMAGES && e.newValue !== null) {
         setSupportsImagesState(e.newValue === "true");
@@ -442,9 +498,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
       if (
         e.key === STORAGE_KEYS.CUSTOM_AI_PROVIDERS ||
-        e.key === STORAGE_KEYS.SELECTED_AI_PROVIDER ||
         e.key === STORAGE_KEYS.CUSTOM_SPEECH_PROVIDERS ||
-        e.key === STORAGE_KEYS.SELECTED_STT_PROVIDER ||
         e.key === STORAGE_KEYS.SYSTEM_PROMPT ||
         e.key === STORAGE_KEYS.SCREENSHOT_CONFIG ||
         e.key === STORAGE_KEYS.CUSTOMIZABLE ||
@@ -495,26 +549,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     checkImageSupport();
   }, [pluelyApiEnabled, selectedAIProvider.provider]);
 
-  // Sync selected AI to localStorage
-  useEffect(() => {
-    if (selectedAIProvider.provider) {
-      safeLocalStorage.setItem(
-        STORAGE_KEYS.SELECTED_AI_PROVIDER,
-        JSON.stringify(selectedAIProvider)
-      );
-    }
-  }, [selectedAIProvider]);
-
-  // Sync selected STT to localStorage
-  useEffect(() => {
-    if (selectedSttProvider.provider) {
-      safeLocalStorage.setItem(
-        STORAGE_KEYS.SELECTED_STT_PROVIDER,
-        JSON.stringify(selectedSttProvider)
-      );
-    }
-  }, [selectedSttProvider]);
-
   // Computed all AI providers
   const allAiProviders: TYPE_PROVIDER[] = [
     ...AI_PROVIDERS,
@@ -551,11 +585,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       }
     }
 
-    setSelectedAIProvider((prev) => ({
-      ...prev,
-      provider,
-      variables,
-    }));
+    providerLoadEpochRef.current += 1;
+    const selected = { provider, variables };
+    setSelectedAIProvider(selected);
+    persistProviderSelection("ai", selected);
   };
 
   // Setter for selected STT with validation
@@ -571,7 +604,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       return;
     }
 
-    setSelectedSttProvider((prev) => ({ ...prev, provider, variables }));
+    providerLoadEpochRef.current += 1;
+    const selected = { provider, variables };
+    setSelectedSttProvider(selected);
+    persistProviderSelection("stt", selected);
   };
 
   // Toggle handlers
@@ -670,6 +706,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     allSttProviders,
     customSttProviders,
     selectedSttProvider,
+    providerStorageError,
     onSetSelectedSttProvider,
     screenshotConfiguration,
     setScreenshotConfiguration,
