@@ -35,6 +35,10 @@ npm run tauri build
 
 The interactive NSIS uninstaller leaves **Delete app data** unchecked by default. Leave it unchecked to retain Veil's local database, settings, and provider credentials for a reinstall; select it to remove the bundle's roaming/local AppData and its AI/STT credentials from Windows Credential Manager. A silent uninstall also retains data by default. Use `uninstall.exe /S /DELETEAPPDATA` only when removal of both local data and stored provider credentials is intended. Updater-driven uninstalls preserve data regardless of this flag.
 
+### Local retrieval benchmark
+
+Run `python scripts/benchmark_local_retrieval.py --assert-gates` to measure the exact SQLite FTS5 query at 100, 1,000, and 10,000 chunks. The report separates anchored lexical queries from paraphrase-only diagnostics and reports first-pass plus warmed p50/p95 latency. Its deterministic synthetic corpus is a regression check, not evidence of semantic retrieval quality on real documents.
+
 ## Configure
 
 1. Open the dashboard (`Ctrl+Shift+D` on Windows)
