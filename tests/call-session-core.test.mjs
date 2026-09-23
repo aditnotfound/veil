@@ -62,15 +62,20 @@ test("blank and duplicate sequence finals cannot enter context", () => {
   assert.deepEqual(core.orderedUtterances().map((u) => u.text), ["valid"]);
 });
 
-test("long calls retain the full journal but bound prompt history", () => {
+test("a two-hour replay retains the full journal but bounds prompt history", () => {
   const core = new CallSessionCore();
   core.start("long");
-  for (let i = 1; i <= 40; i++) {
-    core.appendFinal(final("long", i, i * 1000, `turn ${i}`));
+  const turnCount = 120 * 60 / 5;
+  for (let index = 0; index < turnCount; index++) {
+    const source = index % 2 === 0 ? "system" : "mic";
+    const sequence = Math.floor(index / 2) + 1;
+    core.appendFinal(final("long", sequence, index * 5000, `turn ${index + 1}`, source));
   }
-  assert.equal(core.orderedUtterances().length, 40);
+  const journal = core.orderedUtterances();
+  assert.equal(journal.length, 1440);
+  assert.equal(journal.at(-1).endedAt - journal[0].startedAt, 7_195_500);
   const history = core.historyBefore("");
   assert.equal(history.length, 24);
-  assert.equal(history[0].content, "System: turn 17");
-  assert.equal(history.at(-1).content, "System: turn 40");
+  assert.equal(history[0].content, "System: turn 1417");
+  assert.equal(history.at(-1).content, "Mic: turn 1440");
 });
