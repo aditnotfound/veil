@@ -239,6 +239,32 @@ export async function correctCallUtterance(
   return { utterance, ledgerRebuilt };
 }
 
+export async function restoreCallUtteranceRevision(
+  sessionId: string,
+  revisionId: number
+): Promise<{ utterance: FinalUtterance; ledgerRebuilt: boolean }> {
+  if (!Number.isInteger(revisionId) || revisionId <= 0) {
+    throw new Error("Transcript revision identifier is invalid");
+  }
+  const db = await getDatabase();
+  const rows = await db.select<Array<{
+    utterance_id: string;
+    previous_text: string;
+  }>>(
+    `SELECT utterance_id, previous_text
+     FROM call_utterance_revisions
+     WHERE id = ? AND session_id = ?`,
+    [revisionId, sessionId]
+  );
+  const revision = rows[0];
+  if (!revision) throw new Error("Transcript revision was not found");
+  return correctCallUtterance(
+    sessionId,
+    revision.utterance_id,
+    revision.previous_text
+  );
+}
+
 export async function getCallUtteranceRevisions(sessionId: string): Promise<CallUtteranceRevision[]> {
   const db = await getDatabase();
   const rows = await db.select<Array<{

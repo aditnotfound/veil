@@ -8,6 +8,48 @@ MIGRATIONS = Path(__file__).resolve().parents[1] / "src-tauri/src/db/migrations"
 
 
 class CallMigrationTests(unittest.TestCase):
+    def test_restoring_previous_transcript_creates_a_new_audit_revision(self):
+        with closing(sqlite3.connect(":memory:")) as db:
+            for filename in (
+                "call-sessions.sql", "call-answer-cards.sql",
+                "call-session-ledger.sql", "call-session-plans.sql",
+                "call-transcript-revisions.sql",
+            ):
+                db.executescript((MIGRATIONS / filename).read_text())
+            db.execute("INSERT INTO call_sessions(id, started_at) VALUES ('call', 1)")
+            db.execute(
+                "INSERT INTO call_utterances VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ("turn", "call", "system", 1, 2, 3, "original"),
+            )
+            db.execute(
+                "INSERT INTO call_answer_cards VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                ("turn", "call", "fixture", "fixture", "answer", '[]', 4, 5),
+            )
+            db.execute("UPDATE call_utterances SET text='corrected' WHERE id='turn'")
+            revision = db.execute(
+                "SELECT id, previous_text FROM call_utterance_revisions ORDER BY id"
+            ).fetchone()
+
+            db.execute(
+                "UPDATE call_utterances SET text=? WHERE id='turn'",
+                (revision[1],),
+            )
+
+            self.assertEqual(
+                db.execute("SELECT text FROM call_utterances WHERE id='turn'").fetchone()[0],
+                "original",
+            )
+            self.assertEqual(
+                db.execute(
+                    "SELECT previous_text, corrected_text FROM call_utterance_revisions ORDER BY id"
+                ).fetchall(),
+                [("original", "corrected"), ("corrected", "original")],
+            )
+            self.assertEqual(
+                db.execute("SELECT reason FROM call_answer_invalidations WHERE turn_id='turn'").fetchone(),
+                ("transcript_corrected",),
+            )
+
     def test_retention_prunes_only_sessions_older_than_cutoff(self):
         with closing(sqlite3.connect(":memory:")) as db:
             for filename in (

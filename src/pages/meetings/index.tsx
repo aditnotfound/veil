@@ -30,11 +30,12 @@ import {
   Download,
   Loader2,
   PlusIcon,
+  RotateCcw,
   Sparkles,
   Trash2,
 } from "lucide-react";
 import moment from "moment";
-import { correctCallUtterance, deleteAllCallSessions, deleteCallSession, getCallSessionLedger, getCallSessionPlans, getCallSuggestions, getCallUtteranceRevisions, getCallUtterances, listCallSessions, pruneCallSessionsOlderThan, type CallUtteranceRevision, type StoredCallSession } from "@/lib/database/call-session.action";
+import { correctCallUtterance, deleteAllCallSessions, deleteCallSession, getCallSessionLedger, getCallSessionPlans, getCallSuggestions, getCallUtteranceRevisions, getCallUtterances, listCallSessions, pruneCallSessionsOlderThan, restoreCallUtteranceRevision, type CallUtteranceRevision, type StoredCallSession } from "@/lib/database/call-session.action";
 import { formatCallLedger, formatCallPlans, formatCallSuggestions } from "@/lib/call/session-review";
 import type { FinalUtterance } from "@/lib/call/session-core";
 import {
@@ -81,6 +82,7 @@ const Meetings = () => {
   const [sourceRevisions, setSourceRevisions] = useState<CallUtteranceRevision[]>([]);
   const [correctionDrafts, setCorrectionDrafts] = useState<Record<string, string>>({});
   const [savingCorrectionId, setSavingCorrectionId] = useState<string | null>(null);
+  const [restoringRevisionId, setRestoringRevisionId] = useState<number | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -272,6 +274,32 @@ const Meetings = () => {
     }
   };
 
+  const refreshCorrectedCallSession = async (
+    sessionId: string,
+    corrected: FinalUtterance,
+    ledgerRebuilt: boolean
+  ) => {
+    const nextUtterances = sourceUtterances.map((item) =>
+      item.id === corrected.id ? corrected : item
+    );
+    const [suggestions, ledger, plans, revisions] = await Promise.all([
+      getCallSuggestions(sessionId),
+      getCallSessionLedger(sessionId),
+      getCallSessionPlans(sessionId),
+      getCallUtteranceRevisions(sessionId),
+    ]);
+    setSourceUtterances(nextUtterances);
+    setSourceRevisions(revisions);
+    setCorrectionDrafts((previous) => ({ ...previous, [corrected.id]: corrected.text }));
+    setFormTranscript(formatCallTranscript(nextUtterances));
+    setFormSuggestions(formatCallSuggestions(suggestions, (timestamp) => moment(timestamp).format("h:mm:ss A")));
+    setFormLedger(formatCallLedger(ledger, (timestamp) => moment(timestamp).format("h:mm:ss A")));
+    setFormPlans(formatCallPlans(plans, (timestamp) => moment(timestamp).format("h:mm:ss A")));
+    if (!ledgerRebuilt) {
+      setError("Transcript changed, but its candidate session memory could not be rebuilt.");
+    }
+  };
+
   const handleCorrectUtterance = async (utteranceId: string) => {
     if (!sourceCallSessionId) return;
     const text = correctionDrafts[utteranceId] ?? "";
@@ -279,30 +307,36 @@ const Meetings = () => {
       setSavingCorrectionId(utteranceId);
       setError(null);
       const correction = await correctCallUtterance(sourceCallSessionId, utteranceId, text);
-      const corrected = correction.utterance;
-      const nextUtterances = sourceUtterances.map((item) =>
-        item.id === utteranceId ? corrected : item
+      await refreshCorrectedCallSession(
+        sourceCallSessionId,
+        correction.utterance,
+        correction.ledgerRebuilt
       );
-      const [suggestions, ledger, plans, revisions] = await Promise.all([
-        getCallSuggestions(sourceCallSessionId),
-        getCallSessionLedger(sourceCallSessionId),
-        getCallSessionPlans(sourceCallSessionId),
-        getCallUtteranceRevisions(sourceCallSessionId),
-      ]);
-      setSourceUtterances(nextUtterances);
-      setSourceRevisions(revisions);
-      setCorrectionDrafts((previous) => ({ ...previous, [utteranceId]: corrected.text }));
-      setFormTranscript(formatCallTranscript(nextUtterances));
-      setFormSuggestions(formatCallSuggestions(suggestions, (timestamp) => moment(timestamp).format("h:mm:ss A")));
-      setFormLedger(formatCallLedger(ledger, (timestamp) => moment(timestamp).format("h:mm:ss A")));
-      setFormPlans(formatCallPlans(plans, (timestamp) => moment(timestamp).format("h:mm:ss A")));
-      if (!correction.ledgerRebuilt) {
-        setError("Correction saved, but its candidate session memory could not be rebuilt.");
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to correct transcript source");
     } finally {
       setSavingCorrectionId(null);
+    }
+  };
+
+  const handleRestoreRevision = async (revision: CallUtteranceRevision) => {
+    if (!sourceCallSessionId) return;
+    try {
+      setRestoringRevisionId(revision.id);
+      setError(null);
+      const correction = await restoreCallUtteranceRevision(
+        sourceCallSessionId,
+        revision.id
+      );
+      await refreshCorrectedCallSession(
+        sourceCallSessionId,
+        correction.utterance,
+        correction.ledgerRebuilt
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to restore transcript revision");
+    } finally {
+      setRestoringRevisionId(null);
     }
   };
 
@@ -603,11 +637,33 @@ ${formNotes || "_No notes_"}
               {sourceRevisions.length > 0 && (
                 <div className="mt-3 space-y-1 border-t border-border/50 pt-3">
                   <p className="text-xs font-medium">Revision history</p>
-                  {sourceRevisions.map((revision) => (
-                    <p key={revision.id} className="text-[11px] text-muted-foreground">
-                      [C:{revision.utteranceId}] · {moment(revision.correctedAt).format("h:mm:ss A")} · “{revision.previousText}” → “{revision.correctedText}”
-                    </p>
-                  ))}
+                  {sourceRevisions.map((revision) => {
+                    const currentText = sourceUtterances.find(
+                      (item) => item.id === revision.utteranceId
+                    )?.text;
+                    const alreadyCurrent = currentText?.replace(/\s+/g, " ").trim()
+                      === revision.previousText.replace(/\s+/g, " ").trim();
+                    return (
+                      <div key={revision.id} className="flex items-start justify-between gap-2 rounded-md border border-border/40 p-2">
+                        <p className="text-[11px] text-muted-foreground">
+                          [C:{revision.utteranceId}] · {moment(revision.correctedAt).format("h:mm:ss A")} · “{revision.previousText}” → “{revision.correctedText}”
+                        </p>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 shrink-0 text-[11px]"
+                          disabled={alreadyCurrent || savingCorrectionId !== null || restoringRevisionId !== null}
+                          onClick={() => void handleRestoreRevision(revision)}
+                        >
+                          {restoringRevisionId === revision.id
+                            ? <Loader2 className="size-3.5 animate-spin" />
+                            : <RotateCcw className="size-3.5" />}
+                          Restore previous
+                        </Button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </details>
