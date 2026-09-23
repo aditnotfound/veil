@@ -23,6 +23,15 @@ export const SAVE_REGENERATED_CALL_ANSWER_SQL = `INSERT OR REPLACE INTO call_ans
        WHERE id = ? AND session_id = ? AND text = ?
      )`;
 
+export const SAVE_REGENERATED_CALL_DEEP_ANSWER_SQL = `INSERT OR REPLACE INTO call_deep_answers
+      (turn_id, session_id, provider, model, answer_text, stream_events,
+       status, started_at, completed_at)
+     SELECT ?, ?, ?, ?, ?, ?, 'draft', ?, ?
+     WHERE EXISTS (
+       SELECT 1 FROM call_utterances
+       WHERE id = ? AND session_id = ? AND text = ?
+     )`;
+
 function validEvent(event: AnswerStreamEvent): boolean {
   return Number.isSafeInteger(event.at) && event.at > 0 &&
     typeof event.delta === "string" && event.delta.length > 0;

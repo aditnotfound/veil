@@ -89,6 +89,23 @@ export function buildCallReviewHistory(
   }));
 }
 
+/** Add the current short card as explicitly unverified context for a deep replacement. */
+export function buildDeepCallReviewHistory(
+  utterances: FinalUtterance[],
+  turnId: string,
+  initialAnswer: string
+): Array<{ role: "user" | "assistant"; content: string }> {
+  const answer = initialAnswer.trim();
+  if (!answer) return [];
+  return [
+    ...buildCallReviewHistory(utterances, turnId),
+    {
+      role: "assistant",
+      content: `Current initial live-call suggestion (unverified):\n${answer}`,
+    },
+  ];
+}
+
 /** Render exact, locally classified transcript excerpts for source inspection. */
 export function formatCallLedger(
   entries: StoredCallLedgerEntry[],

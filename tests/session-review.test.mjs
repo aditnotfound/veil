@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildCallReviewHistory, formatCallLedger, formatCallPlans, formatCallSuggestions } from "../src/lib/call/session-review.ts";
+import { buildCallReviewHistory, buildDeepCallReviewHistory, formatCallLedger, formatCallPlans, formatCallSuggestions } from "../src/lib/call/session-review.ts";
 
 test("review-time answer history is bounded, chronological, and source linked", () => {
   const utterances = Array.from({ length: 30 }, (_, index) => ({
@@ -17,6 +17,13 @@ test("review-time answer history is bounded, chronological, and source linked", 
   assert.match(history[0].content, /^\[C:turn-5\] Mic: utterance 5$/);
   assert.match(history.at(-1).content, /^\[C:turn-28\] System: utterance 28$/);
   assert.deepEqual(buildCallReviewHistory(utterances, "missing"), []);
+  const deepHistory = buildDeepCallReviewHistory(utterances, "turn-29", "  Short opening  ");
+  assert.equal(deepHistory.length, 25);
+  assert.deepEqual(deepHistory.at(-1), {
+    role: "assistant",
+    content: "Current initial live-call suggestion (unverified):\nShort opening",
+  });
+  assert.deepEqual(buildDeepCallReviewHistory(utterances, "turn-29", "   "), []);
 });
 
 test("saved call suggestions stay source linked, labeled, and chronological", () => {

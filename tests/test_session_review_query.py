@@ -14,8 +14,8 @@ class SessionReviewQueryTests(unittest.TestCase):
     def test_exact_read_model_joins_initial_and_deep_answers_to_their_turn(self):
         code = (
             'import {CALL_LEDGER_SQL,CALL_SUGGESTIONS_SQL} from "./src/lib/call/session-review.ts"; '
-            'import {SAVE_REGENERATED_CALL_ANSWER_SQL} from "./src/lib/call/answer-card.ts"; '
-            'console.log(JSON.stringify({suggestions:CALL_SUGGESTIONS_SQL,ledger:CALL_LEDGER_SQL,saveRegenerated:SAVE_REGENERATED_CALL_ANSWER_SQL}));'
+            'import {SAVE_REGENERATED_CALL_ANSWER_SQL,SAVE_REGENERATED_CALL_DEEP_ANSWER_SQL} from "./src/lib/call/answer-card.ts"; '
+            'console.log(JSON.stringify({suggestions:CALL_SUGGESTIONS_SQL,ledger:CALL_LEDGER_SQL,saveRegenerated:SAVE_REGENERATED_CALL_ANSWER_SQL,saveDeep:SAVE_REGENERATED_CALL_DEEP_ANSWER_SQL}));'
         )
         result = subprocess.run(
             ["node", "--input-type=module", "-e", code], cwd=ROOT,
@@ -98,6 +98,31 @@ class SessionReviewQueryTests(unittest.TestCase):
             self.assertEqual(
                 [tuple(row) for row in db.execute("SELECT tier FROM call_answer_invalidations ORDER BY tier")],
                 [("deep",), ("initial",)],
+            )
+
+            rejected_deep = db.execute(queries["saveDeep"], (
+                "turn", "call", "strong", "large", "Raced proof",
+                '[{"at":8,"delta":"Raced proof"}]', 7, 8,
+                "turn", "call", "Corrected method question",
+            ))
+            self.assertEqual(rejected_deep.rowcount, 0)
+            self.assertEqual(
+                db.execute("SELECT answer_text FROM call_deep_answers WHERE turn_id='turn'").fetchone()[0],
+                "Replacement proof",
+            )
+            saved_deep = db.execute(queries["saveDeep"], (
+                "turn", "call", "strong", "large", "Current proof",
+                '[{"at":9,"delta":"Current proof"}]', 8, 9,
+                "turn", "call", "Changed during generation",
+            ))
+            self.assertEqual(saved_deep.rowcount, 1)
+            self.assertEqual(
+                [tuple(row) for row in db.execute("SELECT tier FROM call_answer_invalidations")],
+                [("initial",)],
+            )
+            self.assertEqual(
+                tuple(db.execute("SELECT status, answer_text FROM call_deep_answers WHERE turn_id='turn'").fetchone()),
+                ("draft", "Current proof"),
             )
 
 

@@ -38,11 +38,12 @@ import {
 } from "lucide-react";
 import moment from "moment";
 import { correctCallUtterance, deleteAllCallSessions, deleteCallSession, getCallSessionLedger, getCallSessionPlans, getCallSuggestions, getCallUtteranceRevisions, getCallUtterances, listCallSessions, pruneCallSessionsOlderThan, restoreCallUtteranceRevision, type CallUtteranceRevision, type StoredCallSession } from "@/lib/database/call-session.action";
-import { saveRegeneratedCallAnswerCard } from "@/lib/database/call-answer-card.action";
-import { buildCallReviewHistory, formatCallLedger, formatCallPlans, formatCallSuggestions, type StoredCallSuggestion } from "@/lib/call/session-review";
-import { callCardPrompt } from "@/lib/call/decision-router";
-import { selectedModelName } from "@/lib/call/deep-provider";
+import { saveRegeneratedCallAnswerCard, saveRegeneratedCallDeepAnswer } from "@/lib/database/call-answer-card.action";
+import { buildCallReviewHistory, buildDeepCallReviewHistory, formatCallLedger, formatCallPlans, formatCallSuggestions, type StoredCallSuggestion } from "@/lib/call/session-review";
+import { callCardPrompt, deepCallPrompt } from "@/lib/call/decision-router";
+import { selectedModelName, withModelOverride } from "@/lib/call/deep-provider";
 import type { AnswerStreamEvent } from "@/lib/call/answer-card";
+import type { Message } from "@/types/completion";
 import type { FinalUtterance } from "@/lib/call/session-core";
 import {
   CALL_RETENTION_OPTIONS,
@@ -90,7 +91,7 @@ const Meetings = () => {
   const [correctionDrafts, setCorrectionDrafts] = useState<Record<string, string>>({});
   const [savingCorrectionId, setSavingCorrectionId] = useState<string | null>(null);
   const [restoringRevisionId, setRestoringRevisionId] = useState<number | null>(null);
-  const [regeneratingTurnId, setRegeneratingTurnId] = useState<string | null>(null);
+  const [regeneratingSuggestionKey, setRegeneratingSuggestionKey] = useState<string | null>(null);
   const [regenerationPreview, setRegenerationPreview] = useState("");
 
   const abortRef = useRef<AbortController | null>(null);
@@ -360,14 +361,22 @@ const Meetings = () => {
   };
 
   const handleRegenerateSuggestion = async (suggestion: StoredCallSuggestion) => {
-    if (!sourceCallSessionId || suggestion.tier !== "initial" || suggestion.status !== "stale") return;
+    if (!sourceCallSessionId || suggestion.status !== "stale") return;
     const turn = sourceUtterances.find((utterance) => utterance.id === suggestion.turnId);
     if (!turn) {
       setError("The corrected source turn is no longer available.");
       return;
     }
+    const initial = sourceSuggestions.find((item) =>
+      item.turnId === suggestion.turnId && item.tier === "initial"
+    );
+    if (suggestion.tier === "deep" && (!initial || initial.status === "stale")) {
+      setError("Regenerate the stale initial card before regenerating its deep draft.");
+      return;
+    }
+    const suggestionKey = `${suggestion.tier}:${suggestion.turnId}`;
     try {
-      setRegeneratingTurnId(suggestion.turnId);
+      setRegeneratingSuggestionKey(suggestionKey);
       setRegenerationPreview("");
       setError(null);
       abortRef.current?.abort();
@@ -375,16 +384,28 @@ const Meetings = () => {
       const usePluelyAPI = await shouldUsePluelyAPI();
       const provider = allAiProviders.find((item) => item.id === selectedAIProvider.provider);
       if (!usePluelyAPI && !provider) throw new Error("Select an AI provider before regenerating this card.");
+      const deepSelectedProvider = withModelOverride(
+        selectedAIProvider,
+        suggestion.tier === "deep"
+          ? safeLocalStorage.getItem("call_deep_model_override") ?? ""
+          : ""
+      );
+      const history: Message[] = suggestion.tier === "deep" && initial
+        ? buildDeepCallReviewHistory(sourceUtterances, suggestion.turnId, initial.answer)
+        : buildCallReviewHistory(sourceUtterances, suggestion.turnId);
       const startedAt = Date.now();
       const streamEvents: AnswerStreamEvent[] = [];
       let answer = "";
       for await (const chunk of fetchAIResponse({
         provider: usePluelyAPI ? undefined : provider,
-        selectedProvider: selectedAIProvider,
-        systemPrompt: callCardPrompt(systemPrompt || DEFAULT_SYSTEM_PROMPT),
-        history: buildCallReviewHistory(sourceUtterances, suggestion.turnId),
+        selectedProvider: deepSelectedProvider,
+        systemPrompt: suggestion.tier === "deep"
+          ? deepCallPrompt(systemPrompt || DEFAULT_SYSTEM_PROMPT)
+          : callCardPrompt(systemPrompt || DEFAULT_SYSTEM_PROMPT),
+        history,
         historyOrder: "chronological",
         knowledgeMode: "local",
+        responseProfile: suggestion.tier === "deep" ? "deep" : "default",
         userMessage: turn.text,
         imagesBase64: [],
         signal: abortRef.current.signal,
@@ -393,18 +414,21 @@ const Meetings = () => {
         answer += chunk;
         setRegenerationPreview(answer);
       }
-      if (!answer.trim()) throw new Error("The provider returned no replacement card.");
-      const saved = await saveRegeneratedCallAnswerCard({
+      if (!answer.trim()) throw new Error("The provider returned no replacement answer.");
+      const replacement = {
         turnId: suggestion.turnId,
         sessionId: sourceCallSessionId,
         provider: usePluelyAPI ? "pluely-managed" : selectedAIProvider.provider,
-        model: selectedModelName(selectedAIProvider),
+        model: selectedModelName(deepSelectedProvider),
         answerText: answer,
         streamEvents,
         startedAt,
         completedAt: Date.now(),
-      }, turn.text);
-      if (!saved) throw new Error("The transcript changed while this card was regenerating. Review it and try again.");
+      };
+      const saved = suggestion.tier === "deep"
+        ? await saveRegeneratedCallDeepAnswer(replacement, turn.text)
+        : await saveRegeneratedCallAnswerCard(replacement, turn.text);
+      if (!saved) throw new Error("The transcript changed while this answer was regenerating. Review it and try again.");
       const suggestions = await getCallSuggestions(sourceCallSessionId);
       setSourceSuggestions(suggestions);
       setFormSuggestions(formatCallSuggestions(suggestions, (timestamp) => moment(timestamp).format("h:mm:ss A")));
@@ -413,7 +437,7 @@ const Meetings = () => {
       if (err instanceof Error && err.name === "AbortError") return;
       setError(err instanceof Error ? err.message : "Failed to regenerate the saved card");
     } finally {
-      setRegeneratingTurnId(null);
+      setRegeneratingSuggestionKey(null);
     }
   };
 
@@ -757,33 +781,42 @@ ${formNotes || "_No notes_"}
               <Card className="shadow-none p-4 prose prose-sm max-w-none dark:prose-invert">
                 <Markdown>{formSuggestions}</Markdown>
               </Card>
-              {sourceSuggestions.some((suggestion) => suggestion.tier === "initial" && suggestion.status === "stale") && (
+              {sourceSuggestions.some((suggestion) => suggestion.status === "stale") && (
                 <Card className="gap-3 p-3 shadow-none">
                   <div>
                     <p className="text-xs font-medium">Regenerate stale cards</p>
                     <p className="mt-1 text-[11px] text-muted-foreground">
-                      A replacement uses the corrected transcript, bounded earlier call context, and the currently selected provider. Existing deep drafts remain stale until regenerated separately.
+                      Replacements use the corrected transcript, bounded earlier call context, local knowledge retrieval, and the currently selected provider. Deep drafts use the configured call-only deep model override and require a current initial card.
                     </p>
                   </div>
                   {sourceSuggestions
-                    .filter((suggestion) => suggestion.tier === "initial" && suggestion.status === "stale")
-                    .map((suggestion) => (
-                      <div key={suggestion.turnId} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/40 p-2">
-                        <p className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
-                          [C:{suggestion.turnId}] {suggestion.prompt}
-                        </p>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={regeneratingTurnId !== null}
-                          onClick={() => void handleRegenerateSuggestion(suggestion)}
-                        >
-                          {regeneratingTurnId === suggestion.turnId && <Loader2 className="size-3.5 animate-spin" />}
-                          Regenerate initial card
-                        </Button>
-                      </div>
-                    ))}
+                    .filter((suggestion) => suggestion.status === "stale")
+                    .map((suggestion) => {
+                      const suggestionKey = `${suggestion.tier}:${suggestion.turnId}`;
+                      const currentInitial = sourceSuggestions.find((item) =>
+                        item.turnId === suggestion.turnId && item.tier === "initial"
+                      );
+                      const waitingForInitial = suggestion.tier === "deep" &&
+                        (!currentInitial || currentInitial.status === "stale");
+                      return (
+                        <div key={suggestionKey} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/40 p-2">
+                          <p className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+                            {suggestion.tier === "deep" ? "Deep draft" : "Initial card"} · [C:{suggestion.turnId}] {suggestion.prompt}
+                            {waitingForInitial ? " · regenerate the initial card first" : ""}
+                          </p>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={regeneratingSuggestionKey !== null || waitingForInitial}
+                            onClick={() => void handleRegenerateSuggestion(suggestion)}
+                          >
+                            {regeneratingSuggestionKey === suggestionKey && <Loader2 className="size-3.5 animate-spin" />}
+                            Regenerate {suggestion.tier === "deep" ? "deep draft" : "initial card"}
+                          </Button>
+                        </div>
+                      );
+                    })}
                   {regenerationPreview && (
                     <div className="rounded-md border border-border/40 p-3">
                       <p className="mb-2 text-[11px] font-medium text-muted-foreground">Replacement preview</p>
