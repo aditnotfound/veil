@@ -1,6 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatCallLedger, formatCallPlans, formatCallSuggestions } from "../src/lib/call/session-review.ts";
+import { buildCallReviewHistory, formatCallLedger, formatCallPlans, formatCallSuggestions } from "../src/lib/call/session-review.ts";
+
+test("review-time answer history is bounded, chronological, and source linked", () => {
+  const utterances = Array.from({ length: 30 }, (_, index) => ({
+    id: `turn-${index}`,
+    sessionId: "call",
+    source: index % 2 ? "mic" : "system",
+    sequence: index,
+    startedAt: index * 2,
+    endedAt: index * 2 + 1,
+    text: `utterance ${index}`,
+  }));
+  const history = buildCallReviewHistory(utterances, "turn-29");
+  assert.equal(history.length, 24);
+  assert.match(history[0].content, /^\[C:turn-5\] Mic: utterance 5$/);
+  assert.match(history.at(-1).content, /^\[C:turn-28\] System: utterance 28$/);
+  assert.deepEqual(buildCallReviewHistory(utterances, "missing"), []);
+});
 
 test("saved call suggestions stay source linked, labeled, and chronological", () => {
   const output = formatCallSuggestions([

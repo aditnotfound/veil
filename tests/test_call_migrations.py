@@ -8,12 +8,54 @@ MIGRATIONS = Path(__file__).resolve().parents[1] / "src-tauri/src/db/migrations"
 
 
 class CallMigrationTests(unittest.TestCase):
+    def test_regeneration_upgrade_splits_existing_stale_marker_by_answer_tier(self):
+        with closing(sqlite3.connect(":memory:")) as db:
+            for filename in (
+                "call-sessions.sql", "call-answer-cards.sql", "call-deep-answers.sql",
+                "call-session-ledger.sql", "call-session-plans.sql",
+                "call-transcript-revisions.sql",
+            ):
+                db.executescript((MIGRATIONS / filename).read_text())
+            db.execute("INSERT INTO call_sessions(id, started_at) VALUES ('call', 1)")
+            db.execute(
+                "INSERT INTO call_utterances VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ("turn", "call", "system", 1, 2, 3, "original"),
+            )
+            db.execute(
+                "INSERT INTO call_answer_cards VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                ("turn", "call", "fast", "small", "answer", '[]', 4, 5),
+            )
+            db.execute(
+                "INSERT INTO call_deep_answers VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("turn", "call", "strong", "large", "draft", '[]', "draft", 5, 6),
+            )
+            db.execute("UPDATE call_utterances SET text='corrected' WHERE id='turn'")
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM call_answer_invalidations").fetchone()[0], 1)
+
+            db.executescript((MIGRATIONS / "call-answer-regeneration.sql").read_text())
+
+            self.assertEqual(
+                db.execute("SELECT tier FROM call_answer_invalidations ORDER BY tier").fetchall(),
+                [("deep",), ("initial",)],
+            )
+            self.assertEqual(db.execute("SELECT answer_text FROM call_answer_cards").fetchone()[0], "answer")
+            self.assertEqual(db.execute("SELECT answer_text FROM call_deep_answers").fetchone()[0], "draft")
+            db.execute(
+                "INSERT OR REPLACE INTO call_answer_cards VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                ("turn", "call", "fast", "small", "replacement", '[]', 7, 8),
+            )
+            self.assertEqual(
+                db.execute("SELECT tier FROM call_answer_invalidations").fetchall(),
+                [("deep",)],
+            )
+
     def test_restoring_previous_transcript_creates_a_new_audit_revision(self):
         with closing(sqlite3.connect(":memory:")) as db:
             for filename in (
                 "call-sessions.sql", "call-answer-cards.sql",
+                "call-deep-answers.sql",
                 "call-session-ledger.sql", "call-session-plans.sql",
-                "call-transcript-revisions.sql",
+                "call-transcript-revisions.sql", "call-answer-regeneration.sql",
             ):
                 db.executescript((MIGRATIONS / filename).read_text())
             db.execute("INSERT INTO call_sessions(id, started_at) VALUES ('call', 1)")
@@ -57,6 +99,7 @@ class CallMigrationTests(unittest.TestCase):
                 "call-delete.sql", "call-jev-shadow.sql", "call-answer-cards.sql",
                 "call-deep-answers.sql", "call-session-ledger.sql",
                 "call-session-plans.sql", "call-transcript-revisions.sql",
+                "call-answer-regeneration.sql",
             ):
                 db.executescript((MIGRATIONS / filename).read_text())
 
@@ -102,7 +145,7 @@ class CallMigrationTests(unittest.TestCase):
             db.execute("INSERT INTO conversations(id,title,created_at,updated_at) VALUES ('old','Old chat',1,1)")
             db.execute("INSERT INTO meetings(id,title,created_at,updated_at) VALUES ('old-meeting','Old meeting',1,1)")
 
-            for filename in ("call-sessions.sql", "call-timing.sql", "call-decisions.sql", "call-delete.sql", "call-jev-shadow.sql", "call-answer-cards.sql", "call-deep-answers.sql", "call-session-ledger.sql", "call-session-plans.sql", "call-transcript-revisions.sql"):
+            for filename in ("call-sessions.sql", "call-timing.sql", "call-decisions.sql", "call-delete.sql", "call-jev-shadow.sql", "call-answer-cards.sql", "call-deep-answers.sql", "call-session-ledger.sql", "call-session-plans.sql", "call-transcript-revisions.sql", "call-answer-regeneration.sql"):
                 db.executescript((MIGRATIONS / filename).read_text())
             self.assertEqual(db.execute("SELECT title FROM conversations WHERE id='old'").fetchone()[0], "Old chat")
             self.assertEqual(db.execute("SELECT title FROM meetings WHERE id='old-meeting'").fetchone()[0], "Old meeting")
@@ -164,7 +207,7 @@ class CallMigrationTests(unittest.TestCase):
 
     def test_delete_removes_all_session_records_without_foreign_key_pragma(self):
         with closing(sqlite3.connect(":memory:")) as db:
-            for filename in ("call-sessions.sql", "call-timing.sql", "call-decisions.sql", "call-delete.sql", "call-jev-shadow.sql", "call-answer-cards.sql", "call-deep-answers.sql", "call-session-ledger.sql", "call-session-plans.sql", "call-transcript-revisions.sql"):
+            for filename in ("call-sessions.sql", "call-timing.sql", "call-decisions.sql", "call-delete.sql", "call-jev-shadow.sql", "call-answer-cards.sql", "call-deep-answers.sql", "call-session-ledger.sql", "call-session-plans.sql", "call-transcript-revisions.sql", "call-answer-regeneration.sql"):
                 db.executescript((MIGRATIONS / filename).read_text())
             self.assertEqual(db.execute("PRAGMA foreign_keys").fetchone()[0], 0)
             db.execute("INSERT INTO call_sessions(id,started_at) VALUES ('call',2)")

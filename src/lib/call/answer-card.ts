@@ -14,6 +14,15 @@ export interface CallAnswerCard {
   completedAt: number;
 }
 
+export const SAVE_REGENERATED_CALL_ANSWER_SQL = `INSERT OR REPLACE INTO call_answer_cards
+      (turn_id, session_id, provider, model, answer_text, stream_events,
+       started_at, completed_at)
+     SELECT ?, ?, ?, ?, ?, ?, ?, ?
+     WHERE EXISTS (
+       SELECT 1 FROM call_utterances
+       WHERE id = ? AND session_id = ? AND text = ?
+     )`;
+
 function validEvent(event: AnswerStreamEvent): boolean {
   return Number.isSafeInteger(event.at) && event.at > 0 &&
     typeof event.delta === "string" && event.delta.length > 0;

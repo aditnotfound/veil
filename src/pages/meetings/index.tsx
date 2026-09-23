@@ -21,9 +21,11 @@ import {
   fetchAIResponse,
   listMeetings,
   safeLocalStorage,
+  shouldUsePluelyAPI,
   updateMeeting,
   type Meeting,
 } from "@/lib";
+import { DEFAULT_SYSTEM_PROMPT } from "@/config";
 import {
   ArrowLeft,
   CalendarDays,
@@ -36,7 +38,11 @@ import {
 } from "lucide-react";
 import moment from "moment";
 import { correctCallUtterance, deleteAllCallSessions, deleteCallSession, getCallSessionLedger, getCallSessionPlans, getCallSuggestions, getCallUtteranceRevisions, getCallUtterances, listCallSessions, pruneCallSessionsOlderThan, restoreCallUtteranceRevision, type CallUtteranceRevision, type StoredCallSession } from "@/lib/database/call-session.action";
-import { formatCallLedger, formatCallPlans, formatCallSuggestions } from "@/lib/call/session-review";
+import { saveRegeneratedCallAnswerCard } from "@/lib/database/call-answer-card.action";
+import { buildCallReviewHistory, formatCallLedger, formatCallPlans, formatCallSuggestions, type StoredCallSuggestion } from "@/lib/call/session-review";
+import { callCardPrompt } from "@/lib/call/decision-router";
+import { selectedModelName } from "@/lib/call/deep-provider";
+import type { AnswerStreamEvent } from "@/lib/call/answer-card";
 import type { FinalUtterance } from "@/lib/call/session-core";
 import {
   CALL_RETENTION_OPTIONS,
@@ -79,10 +85,13 @@ const Meetings = () => {
   const [formPlans, setFormPlans] = useState("");
   const [sourceCallSessionId, setSourceCallSessionId] = useState<string | null>(null);
   const [sourceUtterances, setSourceUtterances] = useState<FinalUtterance[]>([]);
+  const [sourceSuggestions, setSourceSuggestions] = useState<StoredCallSuggestion[]>([]);
   const [sourceRevisions, setSourceRevisions] = useState<CallUtteranceRevision[]>([]);
   const [correctionDrafts, setCorrectionDrafts] = useState<Record<string, string>>({});
   const [savingCorrectionId, setSavingCorrectionId] = useState<string | null>(null);
   const [restoringRevisionId, setRestoringRevisionId] = useState<number | null>(null);
+  const [regeneratingTurnId, setRegeneratingTurnId] = useState<string | null>(null);
+  const [regenerationPreview, setRegenerationPreview] = useState("");
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -124,8 +133,10 @@ const Meetings = () => {
       setFormPlans("");
       setSourceCallSessionId(null);
       setSourceUtterances([]);
+      setSourceSuggestions([]);
       setSourceRevisions([]);
       setCorrectionDrafts({});
+      setRegenerationPreview("");
     }
   }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps -- sync form when selection changes
 
@@ -141,8 +152,10 @@ const Meetings = () => {
     setFormPlans("");
     setSourceCallSessionId(null);
     setSourceUtterances([]);
+    setSourceSuggestions([]);
     setSourceRevisions([]);
     setCorrectionDrafts({});
+    setRegenerationPreview("");
     setError(null);
   };
 
@@ -154,8 +167,10 @@ const Meetings = () => {
     setFormPlans("");
     setSourceCallSessionId(null);
     setSourceUtterances([]);
+    setSourceSuggestions([]);
     setSourceRevisions([]);
     setCorrectionDrafts({});
+    setRegenerationPreview("");
     setError(null);
   };
 
@@ -169,8 +184,10 @@ const Meetings = () => {
     setFormPlans("");
     setSourceCallSessionId(null);
     setSourceUtterances([]);
+    setSourceSuggestions([]);
     setSourceRevisions([]);
     setCorrectionDrafts({});
+    setRegenerationPreview("");
     setError(null);
   };
 
@@ -224,6 +241,7 @@ const Meetings = () => {
       ));
       setSourceCallSessionId(session.id);
       setSourceUtterances(utterances);
+      setSourceSuggestions(suggestions);
       setSourceRevisions(revisions);
       setCorrectionDrafts(Object.fromEntries(utterances.map((item) => [item.id, item.text])));
     } catch (err) {
@@ -289,6 +307,7 @@ const Meetings = () => {
       getCallUtteranceRevisions(sessionId),
     ]);
     setSourceUtterances(nextUtterances);
+    setSourceSuggestions(suggestions);
     setSourceRevisions(revisions);
     setCorrectionDrafts((previous) => ({ ...previous, [corrected.id]: corrected.text }));
     setFormTranscript(formatCallTranscript(nextUtterances));
@@ -337,6 +356,64 @@ const Meetings = () => {
       setError(err instanceof Error ? err.message : "Failed to restore transcript revision");
     } finally {
       setRestoringRevisionId(null);
+    }
+  };
+
+  const handleRegenerateSuggestion = async (suggestion: StoredCallSuggestion) => {
+    if (!sourceCallSessionId || suggestion.tier !== "initial" || suggestion.status !== "stale") return;
+    const turn = sourceUtterances.find((utterance) => utterance.id === suggestion.turnId);
+    if (!turn) {
+      setError("The corrected source turn is no longer available.");
+      return;
+    }
+    try {
+      setRegeneratingTurnId(suggestion.turnId);
+      setRegenerationPreview("");
+      setError(null);
+      abortRef.current?.abort();
+      abortRef.current = new AbortController();
+      const usePluelyAPI = await shouldUsePluelyAPI();
+      const provider = allAiProviders.find((item) => item.id === selectedAIProvider.provider);
+      if (!usePluelyAPI && !provider) throw new Error("Select an AI provider before regenerating this card.");
+      const startedAt = Date.now();
+      const streamEvents: AnswerStreamEvent[] = [];
+      let answer = "";
+      for await (const chunk of fetchAIResponse({
+        provider: usePluelyAPI ? undefined : provider,
+        selectedProvider: selectedAIProvider,
+        systemPrompt: callCardPrompt(systemPrompt || DEFAULT_SYSTEM_PROMPT),
+        history: buildCallReviewHistory(sourceUtterances, suggestion.turnId),
+        historyOrder: "chronological",
+        knowledgeMode: "local",
+        userMessage: turn.text,
+        imagesBase64: [],
+        signal: abortRef.current.signal,
+      })) {
+        if (chunk) streamEvents.push({ at: Date.now(), delta: chunk });
+        answer += chunk;
+        setRegenerationPreview(answer);
+      }
+      if (!answer.trim()) throw new Error("The provider returned no replacement card.");
+      const saved = await saveRegeneratedCallAnswerCard({
+        turnId: suggestion.turnId,
+        sessionId: sourceCallSessionId,
+        provider: usePluelyAPI ? "pluely-managed" : selectedAIProvider.provider,
+        model: selectedModelName(selectedAIProvider),
+        answerText: answer,
+        streamEvents,
+        startedAt,
+        completedAt: Date.now(),
+      }, turn.text);
+      if (!saved) throw new Error("The transcript changed while this card was regenerating. Review it and try again.");
+      const suggestions = await getCallSuggestions(sourceCallSessionId);
+      setSourceSuggestions(suggestions);
+      setFormSuggestions(formatCallSuggestions(suggestions, (timestamp) => moment(timestamp).format("h:mm:ss A")));
+      setRegenerationPreview("");
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
+      setError(err instanceof Error ? err.message : "Failed to regenerate the saved card");
+    } finally {
+      setRegeneratingTurnId(null);
     }
   };
 
@@ -680,6 +757,41 @@ ${formNotes || "_No notes_"}
               <Card className="shadow-none p-4 prose prose-sm max-w-none dark:prose-invert">
                 <Markdown>{formSuggestions}</Markdown>
               </Card>
+              {sourceSuggestions.some((suggestion) => suggestion.tier === "initial" && suggestion.status === "stale") && (
+                <Card className="gap-3 p-3 shadow-none">
+                  <div>
+                    <p className="text-xs font-medium">Regenerate stale cards</p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      A replacement uses the corrected transcript, bounded earlier call context, and the currently selected provider. Existing deep drafts remain stale until regenerated separately.
+                    </p>
+                  </div>
+                  {sourceSuggestions
+                    .filter((suggestion) => suggestion.tier === "initial" && suggestion.status === "stale")
+                    .map((suggestion) => (
+                      <div key={suggestion.turnId} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/40 p-2">
+                        <p className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+                          [C:{suggestion.turnId}] {suggestion.prompt}
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={regeneratingTurnId !== null}
+                          onClick={() => void handleRegenerateSuggestion(suggestion)}
+                        >
+                          {regeneratingTurnId === suggestion.turnId && <Loader2 className="size-3.5 animate-spin" />}
+                          Regenerate initial card
+                        </Button>
+                      </div>
+                    ))}
+                  {regenerationPreview && (
+                    <div className="rounded-md border border-border/40 p-3">
+                      <p className="mb-2 text-[11px] font-medium text-muted-foreground">Replacement preview</p>
+                      <Markdown isStreaming>{regenerationPreview}</Markdown>
+                    </div>
+                  )}
+                </Card>
+              )}
             </div>
           )}
 

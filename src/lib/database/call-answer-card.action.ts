@@ -1,5 +1,5 @@
 import { getDatabase } from "./config";
-import { validateCallAnswerCard, type CallAnswerCard } from "../call/answer-card";
+import { SAVE_REGENERATED_CALL_ANSWER_SQL, validateCallAnswerCard, type CallAnswerCard } from "../call/answer-card";
 
 export async function saveCallAnswerCard(card: CallAnswerCard): Promise<void> {
   validateCallAnswerCard(card);
@@ -12,6 +12,22 @@ export async function saveCallAnswerCard(card: CallAnswerCard): Promise<void> {
     [card.turnId, card.sessionId, card.provider, card.model, card.answerText,
       JSON.stringify(card.streamEvents), card.startedAt, card.completedAt]
   );
+}
+
+/** Save a review-time replacement only if its corrected source stayed unchanged during generation. */
+export async function saveRegeneratedCallAnswerCard(
+  card: CallAnswerCard,
+  expectedTurnText: string
+): Promise<boolean> {
+  validateCallAnswerCard(card);
+  const db = await getDatabase();
+  const result = await db.execute(
+    SAVE_REGENERATED_CALL_ANSWER_SQL,
+    [card.turnId, card.sessionId, card.provider, card.model, card.answerText,
+      JSON.stringify(card.streamEvents), card.startedAt, card.completedAt,
+      card.turnId, card.sessionId, expectedTurnText]
+  );
+  return result.rowsAffected === 1;
 }
 
 /** Deep answers remain drafts until a separate, task-appropriate check exists. */

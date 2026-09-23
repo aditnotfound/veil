@@ -97,5 +97,11 @@ pub fn migrations() -> Vec<Migration> {
             sql: include_str!("migrations/call-transcript-revisions.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 16,
+            description: "support_call_answer_regeneration",
+            sql: include_str!("migrations/call-answer-regeneration.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }

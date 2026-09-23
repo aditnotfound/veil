@@ -1,3 +1,5 @@
+import { CallSessionCore, type FinalUtterance } from "./session-core.ts";
+
 export interface StoredCallSuggestion {
   turnId: string;
   tier: "initial" | "deep";
@@ -38,7 +40,7 @@ export const CALL_SUGGESTIONS_SQL = `SELECT c.turn_id, 'initial' AS tier,
        u.ended_at AS question_ended_at, c.completed_at
      FROM call_answer_cards c
      JOIN call_utterances u ON u.id = c.turn_id
-     LEFT JOIN call_answer_invalidations i ON i.turn_id = c.turn_id
+     LEFT JOIN call_answer_invalidations i ON i.turn_id = c.turn_id AND i.tier = 'initial'
      WHERE c.session_id = ?
      UNION ALL
      SELECT d.turn_id, 'deep' AS tier,
@@ -47,7 +49,7 @@ export const CALL_SUGGESTIONS_SQL = `SELECT c.turn_id, 'initial' AS tier,
        u.ended_at AS question_ended_at, d.completed_at
      FROM call_deep_answers d
      JOIN call_utterances u ON u.id = d.turn_id
-     LEFT JOIN call_answer_invalidations i ON i.turn_id = d.turn_id
+     LEFT JOIN call_answer_invalidations i ON i.turn_id = d.turn_id AND i.tier = 'deep'
      WHERE d.session_id = ?
      ORDER BY completed_at, tier`;
 
@@ -64,6 +66,27 @@ function singleLine(value: string): string {
 
 function escapeMarkdown(value: string): string {
   return singleLine(value).replace(/([\\`*_{}[\]()<>#+.!|~-])/g, "\\$1");
+}
+
+/** Reconstruct the bounded, chronological transcript window for review-time regeneration. */
+export function buildCallReviewHistory(
+  utterances: FinalUtterance[],
+  turnId: string
+): Array<{ role: "user"; content: string }> {
+  const ordered = [...utterances].sort(
+    (left, right) => left.startedAt - right.startedAt ||
+      left.endedAt - right.endedAt || left.source.localeCompare(right.source) ||
+      left.sequence - right.sequence
+  );
+  const sessionId = ordered.find((utterance) => utterance.id === turnId)?.sessionId;
+  if (!sessionId) return [];
+  const core = new CallSessionCore();
+  core.start(sessionId);
+  for (const utterance of ordered) core.appendFinal(utterance);
+  return core.historyEntriesBefore(turnId).map((entry) => ({
+    role: entry.role,
+    content: `[C:${entry.id}] ${entry.content}`,
+  }));
 }
 
 /** Render exact, locally classified transcript excerpts for source inspection. */
