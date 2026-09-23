@@ -25,6 +25,10 @@ export type IContextType = {
     variables: Record<string, string>;
   };
   providerStorageError: string;
+  jevApiKey: string;
+  jevKeyError: string;
+  saveJevApiKey: (key: string) => Promise<void>;
+  removeJevApiKey: () => Promise<void>;
   onSetSelectedSttProvider: ({
     provider,
     variables,

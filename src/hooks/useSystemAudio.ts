@@ -192,6 +192,7 @@ export function useSystemAudio() {
     selectedSttProvider,
     allSttProviders,
     selectedAIProvider,
+    jevApiKey,
     allAiProviders,
     systemPrompt,
     setSystemPrompt,
@@ -234,9 +235,7 @@ export function useSystemAudio() {
     setIsDeepProcessing(false);
   }, []);
 
-  const jevShadowKey = selectedAIProvider.provider === "openrouter"
-    ? selectedAIProvider.variables?.API_KEY || selectedAIProvider.variables?.api_key || ""
-    : "";
+  const jevShadowKey = jevApiKey;
   const jevShadowAvailable = Boolean(jevShadowKey);
   const sessionPlannerAvailable = Boolean(selectedAIProvider.provider);
 
@@ -247,7 +246,7 @@ export function useSystemAudio() {
 
   const setJevShadowEnabled = useCallback((enabled: boolean) => {
     if (enabled && !jevShadowAvailable) {
-      setJevShadowStatus("Select OpenRouter and configure its API key first");
+      setJevShadowStatus("Add a TypeSafe JEV API key in Dev Space first");
       return;
     }
     setJevShadowEnabledState(enabled);

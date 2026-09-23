@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildJevShadowRequest, JEV_SHADOW_ENDPOINT, requestJevShadow } from "../src/lib/call/jev-shadow.ts";
+import { buildJevShadowRequest, JEV_SHADOW_ENDPOINT, JEV_SHADOW_MODEL, requestJevShadow } from "../src/lib/call/jev-shadow.ts";
 
 const turn = {
   id: "call:system:2", sessionId: "call", source: "system", sequence: 2,
@@ -14,11 +14,14 @@ test("JEV shadow sends bounded, typed choices and validates the choice", async (
   ], null);
   const state = JSON.parse(body.state);
   assert.deepEqual(state.recent, ["one", "two", "three", "four"]);
+  assert.equal(JEV_SHADOW_ENDPOINT, "https://api.typesafe.ai/v1/systemone");
+  assert.equal(JEV_SHADOW_MODEL, "jev-latest");
+  assert.equal(body.model, "jev-latest");
   assert.deepEqual(Object.keys(body.questions.action.criteria), ["silence", "short_answer"]);
   const result = await requestJevShadow(body, "test-only-key", async (url, init) => {
     assert.equal(url, JEV_SHADOW_ENDPOINT);
     assert.equal(init.headers.Authorization, "Bearer test-only-key");
-    return new Response(JSON.stringify({ answers: { action: { choice: "short_answer", confidence: 0.8 } } }), { status: 200 });
+    return new Response(JSON.stringify({ model: "jev-1.13.0", answers: { action: { type: "choice", choice: "short_answer", confidence: 0.8, probabilities: { silence: 0.2, short_answer: 0.8 } } }, usage: { input_tokens: 100, output_tokens: 1 } }), { status: 200 });
   });
   assert.equal(result.status, "valid");
   assert.equal(result.choice, "short_answer");
@@ -28,9 +31,12 @@ test("JEV shadow sends bounded, typed choices and validates the choice", async (
 test("malformed and failed JEV responses never produce a usable choice", async () => {
   const body = buildJevShadowRequest(turn, "after_pause", [], null);
   const malformed = await requestJevShadow(body, "test-only-key", async () =>
-    new Response(JSON.stringify({ answers: { action: { choice: "delete_everything" } } }), { status: 200 }));
+    new Response(JSON.stringify({ answers: { action: { type: "choice", choice: "delete_everything" } } }), { status: 200 }));
   assert.equal(malformed.status, "invalid");
   assert.equal(malformed.choice, null);
+  const wrongType = await requestJevShadow(body, "test-only-key", async () =>
+    new Response(JSON.stringify({ answers: { action: { type: "score", choice: "silence" } } }), { status: 200 }));
+  assert.equal(wrongType.status, "invalid");
   const failed = await requestJevShadow(body, "test-only-key", async () => new Response("", { status: 429 }));
   assert.equal(failed.status, "http_error");
   assert.equal(failed.choice, null);

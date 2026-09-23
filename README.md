@@ -33,7 +33,11 @@ npm run tauri build
 
 ### Windows uninstall data choice
 
-The interactive NSIS uninstaller leaves **Delete app data** unchecked by default. Leave it unchecked to retain Veil's local database, settings, and provider credentials for a reinstall; select it to remove the bundle's roaming/local AppData and its AI/STT credentials from Windows Credential Manager. A silent uninstall also retains data by default. Use `uninstall.exe /S /DELETEAPPDATA` only when removal of both local data and stored provider credentials is intended. Updater-driven uninstalls preserve data regardless of this flag.
+The interactive NSIS uninstaller leaves **Delete app data** unchecked by default. Leave it unchecked to retain Veil's local database, settings, and provider credentials for a reinstall; select it to remove the bundle's roaming/local AppData and its AI/STT/JEV credentials from Windows Credential Manager. A silent uninstall also retains data by default. Use `uninstall.exe /S /DELETEAPPDATA` only when removal of both local data and stored provider credentials is intended. Updater-driven uninstalls preserve data regardless of this flag.
+
+### OpenAI answers and TypeSafe JEV decisions
+
+In **Dev Space → Select answer provider**, choose OpenAI and enter its API key for answer generation. New OpenAI selections start with `gpt-6-sol`; change the model field there if desired. The separate **TypeSafe JEV API key** field calls `https://api.typesafe.ai/v1/systemone` only when **JEV comparison** is enabled in Listen. JEV is optional and currently records a shadow decision; it does not change the answer shown on screen. Both credentials are saved in the OS credential store. The TypeSafe key is removed with the other provider credentials when **Delete app data** is selected during Windows uninstall.
 
 ### Local retrieval benchmark
 

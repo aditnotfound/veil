@@ -158,6 +158,38 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   });
   const [providerStorageErrors, setProviderStorageErrors] = useState<Record<ProviderKind, string>>({ ai: "", stt: "" });
   const providerStorageError = Object.values(providerStorageErrors).filter(Boolean).join(" ");
+  const [jevApiKey, setJevApiKey] = useState("");
+  const [jevKeyError, setJevKeyError] = useState("");
+  const jevKeyEpochRef = useRef(0);
+
+  useEffect(() => {
+    const epoch = ++jevKeyEpochRef.current;
+    void invoke<string | null>("get_provider_secret", { kind: "jev" })
+      .then((key) => {
+        if (jevKeyEpochRef.current === epoch) setJevApiKey(key ?? "");
+      })
+      .catch(() => {
+        if (jevKeyEpochRef.current === epoch) {
+          setJevKeyError("TypeSafe JEV key could not be loaded from the OS credential store.");
+        }
+      });
+  }, []);
+
+  const saveJevApiKey = async (key: string): Promise<void> => {
+    const trimmed = key.trim();
+    if (!trimmed || trimmed.length > 2000) throw new Error("Enter a valid TypeSafe JEV API key.");
+    ++jevKeyEpochRef.current;
+    await invoke<void>("save_provider_secret", { kind: "jev", secret: trimmed });
+    setJevApiKey(trimmed);
+    setJevKeyError("");
+  };
+
+  const removeJevApiKey = async (): Promise<void> => {
+    ++jevKeyEpochRef.current;
+    await invoke<void>("remove_provider_secret", { kind: "jev" });
+    setJevApiKey("");
+    setJevKeyError("");
+  };
   const providerLoadEpochRef = useRef(0);
   const providerReloadRef = useRef<Promise<void>>(Promise.resolve());
   const pendingProviderRef = useRef<Record<ProviderKind, SelectedProvider | null>>({ ai: null, stt: null });
@@ -725,6 +757,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     customSttProviders,
     selectedSttProvider,
     providerStorageError,
+    jevApiKey,
+    jevKeyError,
+    saveJevApiKey,
+    removeJevApiKey,
     onSetSelectedSttProvider,
     screenshotConfiguration,
     setScreenshotConfiguration,

@@ -1,6 +1,7 @@
 import { Button, Header, Input, Selection, TextInput } from "@/components";
 import { UseSettingsReturn } from "@/types";
 import curl2Json, { ResultJSON } from "@bany/curl-to-json";
+import { useApp } from "@/contexts";
 import { KeyIcon, TrashIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -11,8 +12,12 @@ export const Providers = ({
   providerStorageError,
   variables,
 }: UseSettingsReturn) => {
+  const { jevApiKey, jevKeyError, saveJevApiKey, removeJevApiKey } = useApp();
   const [localSelectedProvider, setLocalSelectedProvider] =
     useState<ResultJSON | null>(null);
+  const [jevKeyDraft, setJevKeyDraft] = useState("");
+  const [jevKeySaving, setJevKeySaving] = useState(false);
+  const [jevKeyStatus, setJevKeyStatus] = useState("");
 
   useEffect(() => {
     if (selectedAIProvider?.provider) {
@@ -45,8 +50,8 @@ export const Providers = ({
       {providerStorageError && <p role="alert" className="text-sm text-red-500">{providerStorageError}</p>}
       <div className="space-y-2">
         <Header
-          title="Select AI Provider"
-          description="Select your preferred AI service provider or custom providers to get started."
+          title="Select answer provider"
+          description="Choose OpenAI for the OpenAI answer key below, or another provider for answers. JEV has its own key field."
         />
         <Selection
           selected={selectedAIProvider?.provider}
@@ -64,7 +69,7 @@ export const Providers = ({
           onChange={(value) => {
             onSetSelectedAIProvider({
               provider: value,
-              variables: {},
+              variables: value === "openai" ? { model: "gpt-6-sol" } : {},
             });
           }}
         />
@@ -82,7 +87,7 @@ export const Providers = ({
       {findKeyAndValue("api_key") ? (
         <div className="space-y-2">
           <Header
-            title="API Key"
+            title={selectedAIProvider?.provider === "openai" ? "OpenAI API key" : "API Key"}
             description={`Enter your ${
               allAiProviders?.find(
                 (p) => p?.id === selectedAIProvider?.provider
@@ -174,6 +179,75 @@ export const Providers = ({
           </div>
         </div>
       ) : null}
+
+      <div className="space-y-2 rounded-lg border border-border/50 p-3">
+        <Header
+          title="TypeSafe JEV API key"
+          description="Separate from the OpenAI answer key. Veil stores this key in the OS credential store and sends it only to TypeSafe's System One API when you enable JEV comparison in Listen."
+        />
+        <div className="flex gap-2">
+          <Input
+            type="password"
+            autoComplete="off"
+            placeholder={jevApiKey ? "Key saved in OS credential store" : "Enter TypeSafe JEV key"}
+            value={jevKeyDraft}
+            onChange={(value) => {
+              setJevKeyDraft(typeof value === "string" ? value : value.target.value);
+              setJevKeyStatus("");
+            }}
+            className="flex-1 h-11 border-1 border-input/50 focus:border-primary/50 transition-colors"
+          />
+          <Button
+            type="button"
+            disabled={jevKeySaving || !jevKeyDraft.trim()}
+            onClick={async () => {
+              setJevKeySaving(true);
+              setJevKeyStatus("");
+              try {
+                await saveJevApiKey(jevKeyDraft);
+                setJevKeyDraft("");
+                setJevKeyStatus("TypeSafe JEV key saved.");
+              } catch {
+                setJevKeyStatus("Could not save the TypeSafe JEV key.");
+              } finally {
+                setJevKeySaving(false);
+              }
+            }}
+          >
+            Save
+          </Button>
+          {jevApiKey && (
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={jevKeySaving}
+              onClick={async () => {
+                setJevKeySaving(true);
+                setJevKeyStatus("");
+                try {
+                  await removeJevApiKey();
+                  setJevKeyDraft("");
+                  setJevKeyStatus("TypeSafe JEV key removed.");
+                } catch {
+                  setJevKeyStatus("Could not remove the TypeSafe JEV key.");
+                } finally {
+                  setJevKeySaving(false);
+                }
+              }}
+            >
+              Remove
+            </Button>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {jevApiKey ? "JEV key configured." : "JEV key not configured."}
+        </p>
+        {(jevKeyError || jevKeyStatus) && (
+          <p role={jevKeyError || jevKeyStatus.startsWith("Could not") ? "alert" : "status"} className="text-xs text-muted-foreground">
+            {jevKeyError || jevKeyStatus}
+          </p>
+        )}
+      </div>
 
       <div className="space-y-4 mt-2">
         {variables

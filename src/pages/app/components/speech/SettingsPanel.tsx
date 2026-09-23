@@ -331,12 +331,12 @@ export const SettingsPanel = ({
                   JEV comparison (experimental)
                 </Label>
                 <p className="text-[10px] text-muted-foreground">
-                  Sends finalized call-audio text and up to four recent mic or call-audio transcript turns to OpenRouter.
+                  Sends finalized call-audio text and up to four recent mic or call-audio transcript turns to TypeSafe AI.
                   May incur charges. Records choices locally; visible answers stay on the current router.
                   Turns off when capture stops.
                 </p>
                 <p className="text-[10px] text-muted-foreground">
-                  {jevShadowAvailable ? jevShadowStatus : "Select OpenRouter and configure its API key first"}
+                  {jevShadowAvailable ? jevShadowStatus : "Add a TypeSafe JEV API key in Dev Space first"}
                 </p>
               </div>
               <Switch

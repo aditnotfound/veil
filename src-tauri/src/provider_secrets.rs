@@ -13,6 +13,7 @@ fn entry(service: &str, kind: &str) -> Result<Entry, String> {
     let account = match kind {
         "ai" => "selected-ai-provider",
         "stt" => "selected-stt-provider",
+        "jev" => "selected-jev-provider",
         _ => return Err("Unsupported credential kind".to_string()),
     };
     Entry::new(service, account).map_err(|_| "Credential store unavailable".to_string())
@@ -117,5 +118,18 @@ mod tests {
             service("com.aditajpatil.veil.smoke"),
             "com.aditajpatil.veil.smoke.provider"
         );
+    }
+
+    #[test]
+    fn jev_credential_is_separate_from_answer_provider() {
+        let service = service(&format!("com.aditajpatil.veil.test.{}", uuid::Uuid::new_v4()));
+        let jev = entry(&service, "jev").expect("create Jev entry");
+        let ai = entry(&service, "ai").expect("create AI entry");
+        jev.set_password("jev-test-only").expect("save Jev fixture");
+        let loaded = jev.get_password();
+        let ai_loaded = ai.get_password();
+        jev.delete_credential().expect("remove Jev fixture");
+        assert_eq!(loaded.expect("read Jev fixture"), "jev-test-only");
+        assert!(matches!(ai_loaded, Err(Error::NoEntry)));
     }
 }

@@ -11,7 +11,7 @@
 !macroend
 
 ; Provider selections are stored outside AppData in Windows Credential Manager.
-; Delete only Veil's two bundle-scoped targets when the same data-removal choice
+; Delete only Veil's three bundle-scoped targets when the same data-removal choice
 ; is selected, and never during an updater-driven uninstall.
 !macro NSIS_HOOK_POSTUNINSTALL
   ${If} $DeleteAppDataCheckboxState = 1
@@ -20,5 +20,6 @@
     ; uninstaller free to continue.
     System::Call 'advapi32::CredDeleteW(w "selected-ai-provider.${BUNDLEID}.provider", i 1, i 0) i .r0'
     System::Call 'advapi32::CredDeleteW(w "selected-stt-provider.${BUNDLEID}.provider", i 1, i 0) i .r0'
+    System::Call 'advapi32::CredDeleteW(w "selected-jev-provider.${BUNDLEID}.provider", i 1, i 0) i .r0'
   ${EndIf}
 !macroend

@@ -1,8 +1,8 @@
 import type { AutoResponseMode } from "./decision-router";
 import type { FinalUtterance } from "./session-core";
 
-export const JEV_SHADOW_MODEL = "typesafe/jev-1.13";
-export const JEV_SHADOW_ENDPOINT = "https://openrouter.ai/api/alpha/decisions";
+export const JEV_SHADOW_MODEL = "jev-latest";
+export const JEV_SHADOW_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
 export const JEV_SHADOW_TIMEOUT_MS = 1_500;
 
 export type JevShadowStatus = "valid" | "invalid" | "timeout" | "canceled" | "http_error" | "network_error";
@@ -87,7 +87,8 @@ export async function requestJevShadow(
     const answers = data.answers;
     if (!answers || typeof answers !== "object" || !("action" in answers)) return outcome("invalid");
     const action = answers.action;
-    if (!action || typeof action !== "object" || !("choice" in action)) return outcome("invalid");
+    if (!action || typeof action !== "object" || !("choice" in action) ||
+      !("type" in action) || action.type !== "choice") return outcome("invalid");
     const choice = action.choice;
     if (choice !== "silence" && choice !== "short_answer") return outcome("invalid");
     const rawConfidence = "confidence" in action ? action.confidence : null;

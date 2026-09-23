@@ -20,6 +20,7 @@ class NsisDataChoiceTests(unittest.TestCase):
         self.assertIn("StrCpy $DeleteAppDataCheckboxState 1", hook)
         self.assertIn("selected-ai-provider.${BUNDLEID}.provider", hook)
         self.assertIn("selected-stt-provider.${BUNDLEID}.provider", hook)
+        self.assertIn("selected-jev-provider.${BUNDLEID}.provider", hook)
         self.assertIn("$UpdateMode <> 1", hook)
         self.assertNotIn("com.aditajpatil.veil", hook)
         self.assertNotIn("RmDir", hook)
