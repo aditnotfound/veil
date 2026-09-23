@@ -7,6 +7,12 @@ import {
 import { getPlatform, safeLocalStorage, trackAppStart } from "@/lib";
 import { getShortcutsConfig } from "@/lib/storage";
 import {
+  CALL_RETENTION_STORAGE_KEY,
+  callRetentionCutoff,
+  parseCallRetentionDays,
+} from "@/lib/call/retention";
+import { pruneCallSessionsOlderThan } from "@/lib/database/call-session.action";
+import {
   loadProviderSelection,
   saveProviderSelection,
   type ProviderKind,
@@ -93,6 +99,18 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     safeLocalStorage.getItem(STORAGE_KEYS.SYSTEM_PROMPT) ||
       DEFAULT_SYSTEM_PROMPT
   );
+
+  useEffect(() => {
+    const retentionDays = parseCallRetentionDays(
+      safeLocalStorage.getItem(CALL_RETENTION_STORAGE_KEY)
+    );
+    const cutoff = callRetentionCutoff(retentionDays);
+    if (cutoff !== null) {
+      void pruneCallSessionsOlderThan(cutoff).catch((error) => {
+        console.error("Failed to apply call retention policy:", error);
+      });
+    }
+  }, []);
 
   const [selectedAudioDevices, setSelectedAudioDevices] = useState<{
     input: { id: string; name: string };

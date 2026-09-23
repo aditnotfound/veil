@@ -6,6 +6,11 @@ import {
   Input,
   Label,
   Markdown,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Textarea,
 } from "@/components";
 import { PageLayout } from "@/layouts";
@@ -15,6 +20,7 @@ import {
   deleteMeeting,
   fetchAIResponse,
   listMeetings,
+  safeLocalStorage,
   updateMeeting,
   type Meeting,
 } from "@/lib";
@@ -28,9 +34,17 @@ import {
   Trash2,
 } from "lucide-react";
 import moment from "moment";
-import { correctCallUtterance, deleteCallSession, getCallSessionLedger, getCallSessionPlans, getCallSuggestions, getCallUtteranceRevisions, getCallUtterances, listCallSessions, type CallUtteranceRevision, type StoredCallSession } from "@/lib/database/call-session.action";
+import { correctCallUtterance, deleteAllCallSessions, deleteCallSession, getCallSessionLedger, getCallSessionPlans, getCallSuggestions, getCallUtteranceRevisions, getCallUtterances, listCallSessions, pruneCallSessionsOlderThan, type CallUtteranceRevision, type StoredCallSession } from "@/lib/database/call-session.action";
 import { formatCallLedger, formatCallPlans, formatCallSuggestions } from "@/lib/call/session-review";
 import type { FinalUtterance } from "@/lib/call/session-core";
+import {
+  CALL_RETENTION_OPTIONS,
+  CALL_RETENTION_STORAGE_KEY,
+  callRetentionCutoff,
+  callRetentionLabel,
+  parseCallRetentionDays,
+  type CallRetentionDays,
+} from "@/lib/call/retention";
 
 function formatCallTranscript(utterances: FinalUtterance[]): string {
   return utterances.map((utterance) =>
@@ -49,6 +63,11 @@ const Meetings = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [deletingCallSessionId, setDeletingCallSessionId] = useState<string | null>(null);
+  const [isClearingCallData, setIsClearingCallData] = useState(false);
+  const [retentionDays, setRetentionDays] = useState<CallRetentionDays>(() =>
+    parseCallRetentionDays(safeLocalStorage.getItem(CALL_RETENTION_STORAGE_KEY))
+  );
+  const [retentionStatus, setRetentionStatus] = useState("");
 
   const [formTitle, setFormTitle] = useState("");
   const [formTranscript, setFormTranscript] = useState("");
@@ -71,6 +90,8 @@ const Meetings = () => {
     try {
       setIsLoading(true);
       setError(null);
+      const cutoff = callRetentionCutoff(retentionDays);
+      if (cutoff !== null) await pruneCallSessionsOlderThan(cutoff);
       const list = await listMeetings();
       setMeetings(list);
       setCallSessions(await listCallSessions());
@@ -81,7 +102,7 @@ const Meetings = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [retentionDays]);
 
   useEffect(() => {
     loadMeetings();
@@ -219,6 +240,35 @@ const Meetings = () => {
       setError(err instanceof Error ? err.message : "Failed to delete Listen session");
     } finally {
       setDeletingCallSessionId(null);
+    }
+  };
+
+  const handleRetentionChange = (value: string) => {
+    const next = parseCallRetentionDays(value);
+    safeLocalStorage.setItem(CALL_RETENTION_STORAGE_KEY, String(next));
+    setRetentionDays(next);
+    setRetentionStatus(
+      next === 0
+        ? "Future Listen sessions stay local until you delete them."
+        : `Listen sessions older than ${next} days will be deleted locally.`
+    );
+  };
+
+  const handleDeleteAllCallSessions = async () => {
+    if (!window.confirm(
+      "Permanently delete every Listen session, transcript, candidate memory, saved card, and deep draft? Saved meeting copies remain separate."
+    )) return;
+    try {
+      setIsClearingCallData(true);
+      setError(null);
+      const deleted = await deleteAllCallSessions();
+      setCallSessions([]);
+      if (sourceCallSessionId) backToList();
+      setRetentionStatus(`Deleted ${deleted} local Listen session${deleted === 1 ? "" : "s"}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete Listen data");
+    } finally {
+      setIsClearingCallData(false);
     }
   };
 
@@ -391,6 +441,50 @@ ${formNotes || "_No notes_"}
         ) : undefined
       }
     >
+      {!showEditor && (
+        <Card className="mb-4 gap-3 p-4 shadow-none">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div className="min-w-56 flex-1 space-y-1">
+              <Label htmlFor="call-retention">Local Listen data</Label>
+              <p className="text-xs text-muted-foreground">
+                Transcripts and answer records remain on this device. Uninstalling Veil does not remove its AppData database.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select value={String(retentionDays)} onValueChange={handleRetentionChange}>
+                <SelectTrigger id="call-retention" className="w-44">
+                  <SelectValue aria-label={callRetentionLabel(retentionDays)} />
+                </SelectTrigger>
+                <SelectContent>
+                  {CALL_RETENTION_OPTIONS.map((days) => (
+                    <SelectItem key={days} value={String(days)}>
+                      {callRetentionLabel(days)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => void handleDeleteAllCallSessions()}
+                disabled={isClearingCallData}
+              >
+                {isClearingCallData && <Loader2 className="size-4 animate-spin" />}
+                Clear all Listen data
+              </Button>
+            </div>
+          </div>
+          {retentionStatus && (
+            <p className="text-xs text-muted-foreground" role="status">
+              {retentionStatus}
+            </p>
+          )}
+          <p className="text-[11px] text-muted-foreground">
+            Saved meeting copies are separate records and must be deleted separately.
+          </p>
+        </Card>
+      )}
+
       {error && (
         <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3">
           <p className="text-sm text-destructive">{error}</p>

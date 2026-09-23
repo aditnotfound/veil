@@ -48,6 +48,24 @@ export async function deleteCallSession(id: string): Promise<void> {
   await db.execute("DELETE FROM call_sessions WHERE id = ?", [id]);
 }
 
+export async function deleteAllCallSessions(): Promise<number> {
+  const db = await getDatabase();
+  const result = await db.execute("DELETE FROM call_sessions");
+  return result.rowsAffected;
+}
+
+export async function pruneCallSessionsOlderThan(cutoff: number): Promise<number> {
+  if (!Number.isFinite(cutoff) || cutoff < 0) {
+    throw new Error("Call retention cutoff must be a non-negative timestamp");
+  }
+  const db = await getDatabase();
+  const result = await db.execute(
+    "DELETE FROM call_sessions WHERE COALESCE(ended_at, started_at) < ?",
+    [Math.floor(cutoff)]
+  );
+  return result.rowsAffected;
+}
+
 export async function listCallSessions(): Promise<StoredCallSession[]> {
   const db = await getDatabase();
   return db.select<StoredCallSession[]>(

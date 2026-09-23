@@ -8,6 +8,50 @@ MIGRATIONS = Path(__file__).resolve().parents[1] / "src-tauri/src/db/migrations"
 
 
 class CallMigrationTests(unittest.TestCase):
+    def test_retention_prunes_only_sessions_older_than_cutoff(self):
+        with closing(sqlite3.connect(":memory:")) as db:
+            for filename in (
+                "call-sessions.sql", "call-timing.sql", "call-decisions.sql",
+                "call-delete.sql", "call-jev-shadow.sql", "call-answer-cards.sql",
+                "call-deep-answers.sql", "call-session-ledger.sql",
+                "call-session-plans.sql", "call-transcript-revisions.sql",
+            ):
+                db.executescript((MIGRATIONS / filename).read_text())
+
+            db.executemany(
+                "INSERT INTO call_sessions(id, started_at, ended_at) VALUES (?, ?, ?)",
+                [
+                    ("old", 100, 200),
+                    ("recent", 700, 900),
+                    ("active", 950, None),
+                ],
+            )
+            db.executemany(
+                "INSERT INTO call_utterances VALUES (?, ?, 'system', 1, ?, ?, ?)",
+                [
+                    ("old-turn", "old", 110, 120, "old"),
+                    ("recent-turn", "recent", 710, 720, "recent"),
+                    ("active-turn", "active", 960, 970, "active"),
+                ],
+            )
+            db.execute(
+                "INSERT INTO call_answer_cards VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                ("old-turn", "old", "fixture", "fixture", "old answer", '[]', 121, 122),
+            )
+
+            result = db.execute(
+                "DELETE FROM call_sessions WHERE COALESCE(ended_at, started_at) < ?",
+                (500,),
+            )
+
+            self.assertEqual(result.rowcount, 1)
+            self.assertEqual(
+                [row[0] for row in db.execute("SELECT id FROM call_sessions ORDER BY id")],
+                ["active", "recent"],
+            )
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM call_utterances WHERE session_id='old'").fetchone()[0], 0)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM call_answer_cards WHERE session_id='old'").fetchone()[0], 0)
+
     def test_upgrade_preserves_legacy_rows_and_cascades_call_data(self):
         with closing(sqlite3.connect(":memory:")) as db:
             db.execute("PRAGMA foreign_keys=ON")
