@@ -138,6 +138,7 @@ export function useSystemAudio() {
   const [latestSystemTurn, setLatestSystemTurn] = useState<FinalUtterance | null>(null);
   const [lastAIResponse, setLastAIResponse] = useState<string>("");
   const [lastAnswerPrompt, setLastAnswerPrompt] = useState<string>("");
+  const [attachedScreenshot, setAttachedScreenshotState] = useState<string | null>(null);
   const [deepAIResponse, setDeepAIResponse] = useState<string>("");
   const [isDeepProcessing, setIsDeepProcessing] = useState(false);
   const [deepAnswerStatus, setDeepAnswerStatus] = useState<"draft" | null>(null);
@@ -201,6 +202,14 @@ export function useSystemAudio() {
     selectedAudioDevices,
   } = useApp();
   const callCoreRef = useRef(new CallSessionCore());
+  const attachedScreenshotRef = useRef<string | null>(null);
+  const setAttachedScreenshot = useCallback((image: string | null) => {
+    attachedScreenshotRef.current = image;
+    setAttachedScreenshotState(image);
+  }, []);
+  const clearAttachedScreenshot = useCallback(() => {
+    setAttachedScreenshot(null);
+  }, [setAttachedScreenshot]);
   const lastAnsweredRef = useRef<AnsweredTurn | null>(null);
   const completedCardRef = useRef<{
     prompt: string;
@@ -1160,6 +1169,7 @@ export function useSystemAudio() {
         let firstChunkSeen = false;
         const answerStartedAt = Date.now();
         const streamEvents: AnswerStreamEvent[] = [];
+        const requestScreenshot = attachedScreenshotRef.current;
         try {
           for await (const chunk of fetchAIResponse({
             provider: usePluelyAPI ? undefined : provider,
@@ -1172,7 +1182,7 @@ export function useSystemAudio() {
               if (job.isCurrent()) setError("Personal knowledge could not be searched locally.");
             },
             userMessage: transcription,
-            imagesBase64: [],
+            imagesBase64: requestScreenshot ? [requestScreenshot] : [],
             signal: job.signal,
           })) {
             if (!job.isCurrent()) return false;
@@ -1242,6 +1252,7 @@ export function useSystemAudio() {
               if (job.isCurrent()) setError("Answer shown, but its call-review record could not be saved.");
             }
           }
+          clearAttachedScreenshot();
         }
       } catch (err) {
         if (job.isCurrent()) setError("Failed to get AI response");
@@ -1258,7 +1269,7 @@ export function useSystemAudio() {
       }
       return succeeded;
     },
-    [selectedAIProvider, allAiProviders]
+    [selectedAIProvider, allAiProviders, clearAttachedScreenshot]
   );
 
   const answerLatestSystemTurn = useCallback(async () => {
@@ -1550,6 +1561,7 @@ export function useSystemAudio() {
       pendingSttRef.current = 0;
       lastAnsweredRef.current = null;
       completedCardRef.current = null;
+      clearAttachedScreenshot();
       answerInFlightRef.current = false;
       manualAnswerInFlightRef.current = false;
       deepInFlightRef.current = false;
@@ -1612,7 +1624,7 @@ export function useSystemAudio() {
     } finally {
       startingCaptureRef.current = false;
     }
-  }, [vadConfig, selectedAudioDevices.output.id, liveCaptionsEnabled, selectedSttProvider.provider, sessionPlannerEnabled]);
+  }, [vadConfig, selectedAudioDevices.output.id, liveCaptionsEnabled, selectedSttProvider.provider, sessionPlannerEnabled, clearAttachedScreenshot]);
 
   const stopCapture = useCallback(async () => {
             const sessionId = callCoreRef.current.activeSessionId;
@@ -1627,6 +1639,7 @@ export function useSystemAudio() {
     pendingSttRef.current = 0;
     lastAnsweredRef.current = null;
     completedCardRef.current = null;
+    clearAttachedScreenshot();
     answerInFlightRef.current = false;
     manualAnswerInFlightRef.current = false;
     deepInFlightRef.current = false;
@@ -1669,7 +1682,7 @@ export function useSystemAudio() {
         });
       }
     }
-  }, [abortJevShadows]);
+  }, [abortJevShadows, clearAttachedScreenshot]);
 
   // Manual stop for continuous recording
   const manualStopAndSend = useCallback(async () => {
@@ -1851,12 +1864,13 @@ export function useSystemAudio() {
     setMicError("");
     setError("");
     setSetupRequired(false);
+    clearAttachedScreenshot();
     setIsProcessing(false);
     setIsAIProcessing(false);
     setIsDeepProcessing(false);
     setIsPopoverOpen(capturing);
     setUseSystemPrompt(true);
-  }, [capturing, abortJevShadows, sessionPlannerEnabled]);
+  }, [capturing, abortJevShadows, sessionPlannerEnabled, clearAttachedScreenshot]);
 
   // Update VAD configuration
   const updateVadConfiguration = useCallback(async (config: VadConfig) => {
@@ -2042,5 +2056,8 @@ export function useSystemAudio() {
     partialSystemCaption,
     partialMicCaption,
     handleMicFrame,
+    attachedScreenshot,
+    setAttachedScreenshot,
+    clearAttachedScreenshot,
   };
 }

@@ -105,6 +105,9 @@ export const SystemAudio = (props: useSystemAudioType) => {
     partialSystemCaption,
     partialMicCaption,
     handleMicFrame,
+    attachedScreenshot,
+    setAttachedScreenshot,
+    clearAttachedScreenshot,
   } = props;
 
   const { hasActiveLicense, supportsImages } = useApp();
@@ -112,8 +115,6 @@ export const SystemAudio = (props: useSystemAudioType) => {
   // View mode toggle
   const [conversationMode, setConversationMode] = useState(false);
 
-  // Screenshot state
-  const [screenshotImage, setScreenshotImage] = useState<string | null>(null);
   const [isCapturingScreenshot, setIsCapturingScreenshot] = useState(false);
 
   const isVadMode = vadConfig.enabled;
@@ -134,13 +135,6 @@ export const SystemAudio = (props: useSystemAudioType) => {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isPopoverOpen]);
-
-  // Reset screenshot when processing starts (message is being sent)
-  useEffect(() => {
-    if (isProcessing && screenshotImage) {
-      setScreenshotImage(null);
-    }
-  }, [isProcessing, screenshotImage]);
 
   const handleToggleCapture = async () => {
     if (capturing) {
@@ -184,7 +178,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
         screenId: null, // Use default screen
       });
 
-      setScreenshotImage(base64);
+      setAttachedScreenshot(base64);
     } catch (err) {
       console.error("Failed to capture screenshot:", err);
     } finally {
@@ -192,9 +186,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
     }
   }, [isCapturingScreenshot]);
 
-  const handleRemoveScreenshot = useCallback(() => {
-    setScreenshotImage(null);
-  }, []);
+  const handleRemoveScreenshot = clearAttachedScreenshot;
 
   const getButtonIcon = () => {
     if (setupRequired) return <AlertCircleIcon className="text-orange-500" />;
@@ -304,12 +296,12 @@ export const SystemAudio = (props: useSystemAudioType) => {
                   {hasActiveLicense && !setupRequired && supportsImages && (
                     <Button
                       size="sm"
-                      variant={screenshotImage ? "default" : "outline"}
+                      variant={attachedScreenshot ? "default" : "outline"}
                       onClick={handleCaptureScreenshot}
                       disabled={isCapturingScreenshot}
                       className={cn(
                         "h-6 text-[10px] gap-1 px-2",
-                        screenshotImage && "bg-primary text-primary-foreground"
+                        attachedScreenshot && "bg-primary text-primary-foreground"
                       )}
                       title="Capture screenshot to include with transcription"
                     >
@@ -363,10 +355,10 @@ export const SystemAudio = (props: useSystemAudioType) => {
                   </p>
                 )}
                 {/* Screenshot Preview */}
-                {screenshotImage && (
+                {attachedScreenshot && (
                   <div className="flex items-center gap-2 p-2 rounded-lg bg-primary/5 border border-primary/20">
                     <img
-                      src={`data:image/png;base64,${screenshotImage}`}
+                      src={`data:image/png;base64,${attachedScreenshot}`}
                       alt="Screenshot"
                       className="h-12 w-20 object-cover rounded"
                     />
@@ -375,7 +367,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
                         Screenshot attached
                       </p>
                       <p className="text-[9px] text-muted-foreground">
-                        Will be sent with next transcription
+                        Will be sent with the next answer
                       </p>
                     </div>
                     <Button
