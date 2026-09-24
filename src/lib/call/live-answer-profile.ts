@@ -9,5 +9,7 @@ export function applyLiveAnswerProfile(
   const model = body.model;
   if (typeof model !== "string" ||
       !/^gpt-6-(astra|sol|luna)(?:$|-)/i.test(model)) return;
-  body.reasoning_effort = "low";
+  body.reasoning_effort = /^(gpt-6-sol|gpt-6-luna)(?:$|-)/i.test(model)
+    ? "none"
+    : "low";
 }

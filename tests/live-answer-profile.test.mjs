@@ -3,10 +3,18 @@ import assert from "node:assert/strict";
 import { applyLiveAnswerProfile } from "../src/lib/call/live-answer-profile.ts";
 
 test("short OpenAI GPT-6 call cards use low effort", () => {
-  for (const model of ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]) {
+  for (const model of ["gpt-6-astra"]) {
     const body = { model, messages: [] };
     applyLiveAnswerProfile(body, "openai", "live-short");
     assert.equal(body.reasoning_effort, "low");
+  }
+});
+
+test("latency-critical GPT-6 Sol and Luna cards disable extra reasoning", () => {
+  for (const model of ["gpt-6-sol", "gpt-6-luna", "gpt-6-sol-mini"]) {
+    const body = { model, messages: [] };
+    applyLiveAnswerProfile(body, "openai", "live-short");
+    assert.equal(body.reasoning_effort, "none");
   }
 });
 
