@@ -765,8 +765,9 @@ export function useSystemAudio() {
                   timing.status = "canceled";
                   return;
                 }
-                const superseded = sequence < latestCompletedSystemSequenceRef.current ||
-                  startedAt < latestShownStartedAtRef.current;
+                // A later microphone turn may update the displayed transcript,
+                // but it must not suppress a pending system-audio question.
+                const superseded = sequence < latestCompletedSystemSequenceRef.current;
                 latestCompletedSystemSequenceRef.current = Math.max(
                   latestCompletedSystemSequenceRef.current, sequence
                 );
@@ -780,12 +781,14 @@ export function useSystemAudio() {
                   launchSessionPlannerRef.current(utterance);
                 }
                 if (superseded) return;
-                latestShownStartedAtRef.current = startedAt;
                 if (shouldCancelAnswerForDecision(decision)) {
                   cancelAnswerForSpeech();
                 }
-                // Dual-source label: system audio path is always "System"
-                setLastTranscription(`System: ${transcription.trim()}`);
+                if (startedAt >= latestShownStartedAtRef.current) {
+                  latestShownStartedAtRef.current = startedAt;
+                  // Dual-source label: system audio path is always "System"
+                  setLastTranscription(`System: ${transcription.trim()}`);
+                }
                 setLatestSystemTurn(utterance);
 
                 if (decision.action === "short_answer" && !manualAnswerInFlightRef.current) {
@@ -1495,7 +1498,6 @@ export function useSystemAudio() {
       if (ledgerPersisted) setMicError("");
       if (startedAt >= latestShownStartedAtRef.current) {
         latestShownStartedAtRef.current = startedAt;
-        cancelAnswerForSpeech();
         setLastTranscription(`Mic: ${transcription}`);
       }
     } catch (err) {
@@ -1512,7 +1514,7 @@ export function useSystemAudio() {
         console.error("Failed to save microphone timing:", err)
       );
     }
-  }, [micEnabled, selectedSttProvider, allSttProviders, autoResponseMode, cancelAnswerForSpeech]);
+  }, [micEnabled, selectedSttProvider, allSttProviders, autoResponseMode]);
 
   const handleMicError = useCallback((message: string) => {
     setMicError(`Microphone capture failed: ${message}`);
@@ -1522,8 +1524,7 @@ export function useSystemAudio() {
     if (!callCoreRef.current.activeSessionId) return;
     micSpeechActiveRef.current = true;
     setPartialMicCaption("");
-    cancelAnswerForSpeech();
-  }, [cancelAnswerForSpeech]);
+  }, []);
 
   const toggleMic = useCallback(() => {
     setMicEnabled((enabled) => !enabled);
