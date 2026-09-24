@@ -3,6 +3,10 @@
 Run one spoken synthetic question through an already-running packaged Veil app.
 .EXAMPLE
 pwsh scripts/test_packaged_listen.ps1 -ProcessId 1234 -Question 'What is nine plus twelve?' -TranscriptPattern 'What is (9|nine) plus (12|twelve)' -AnswerPattern '21'
+
+The transcript and answer arguments are regular expressions. AnswerPattern is
+matched anywhere in the active answer card, so a correct explanatory answer
+may contain the expected value alongside other text.
 #>
 param(
   [Parameter(Mandatory = $true)][int]$ProcessId,
@@ -144,7 +148,6 @@ try {
   $null = $voice.Speak($Question)
   $speechEndedAt = Now-Milliseconds
   $deadline = $speechEndedAt + $TimeoutSeconds * 1000
-  $answerLine = '(?m)^\s*(?:' + $AnswerPattern + ')\s*[.!]?\s*$'
 
   while ((Now-Milliseconds) -lt $deadline) {
     $display = Get-DocumentText $window
@@ -163,7 +166,7 @@ try {
       Write-Host ("TRACE prompt=[{0}] answer=[{1}]" -f $answerPrompt, $visibleAnswer)
     }
     if ($result.AnswerStarted -and -not $result.AnswerVisible -and
-        $visibleAnswer -match $answerLine) {
+        $visibleAnswer -match $AnswerPattern) {
       $result.AnswerVisible = $true
       $result.FirstAnswerVisibleMs = $now - $speechEndedAt
     }
