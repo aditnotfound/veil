@@ -27,7 +27,7 @@ import { hasUsableAnswer } from "@/lib/call/answer-result";
 import { createCallSession, appendCallUtterance, endCallSession, searchCallUtterances } from "@/lib/database/call-session.action";
 import { formatCallEvidence } from "@/lib/call/local-search";
 import { estimateWavStartAt } from "@/lib/call/audio-timing";
-import { saveCallTurnTiming, type CallTurnTiming } from "@/lib/database/call-timing.action";
+import { getCallTurnTiming, saveCallTurnTiming, type CallTurnTiming } from "@/lib/database/call-timing.action";
 import { saveCallTurnDecision } from "@/lib/database/call-decision.action";
 import { saveCallJevShadow, type StoredJevShadowStatus } from "@/lib/database/call-jev-shadow.action";
 import { saveCallAnswerCard, saveCallDeepAnswer } from "@/lib/database/call-answer-card.action";
@@ -1295,15 +1295,23 @@ export function useSystemAudio() {
     manualAnswerInFlightRef.current = true;
     setIsPopoverOpen(true);
     await resizeWindow(true);
+    const transcribedTiming = await getCallTurnTiming(turn.id).catch((error) => {
+      console.warn("Failed to load transcription timing for manual answer:", error);
+      return null;
+    });
     const job = callCoreRef.current.beginAnswer();
     const answerStartedAt = Date.now();
     const answerStartedPerf = performance.now();
-    const waitBeforeAnswerMs = Math.max(0, answerStartedAt - turn.endedAt);
+    const audioReadyAt = transcribedTiming?.audioReadyAt ?? turn.endedAt;
+    const waitBeforeAnswerMs = Math.max(
+      0, answerStartedAt - audioReadyAt - (transcribedTiming?.audioToSttMs ?? 0)
+    );
     const timing: CallTurnTiming = {
       turnId: turn.id,
       sessionId: turn.sessionId,
       source: "system",
-      audioReadyAt: turn.endedAt,
+      audioReadyAt,
+      audioToSttMs: transcribedTiming?.audioToSttMs,
       waitBeforeAnswerMs,
       status: "answer_error",
     };
@@ -1318,7 +1326,7 @@ export function useSystemAudio() {
         job,
         (firstChunkPerf) => {
           timing.answerToFirstChunkMs = firstChunkPerf - answerStartedPerf;
-          timing.audioToFirstChunkMs = waitBeforeAnswerMs + timing.answerToFirstChunkMs;
+          timing.audioToFirstChunkMs = answerStartedAt - audioReadyAt + timing.answerToFirstChunkMs;
         },
         turn.id
       );

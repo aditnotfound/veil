@@ -3,6 +3,10 @@
 Run one spoken synthetic question through an already-running packaged Veil app.
 .EXAMPLE
 pwsh scripts/test_packaged_listen.ps1 -ProcessId 1234 -Question 'What is nine plus twelve?' -TranscriptPattern 'What is (9|nine) plus (12|twelve)' -AnswerPattern '21'
+.EXAMPLE
+pwsh scripts/test_packaged_listen.ps1 -ProcessId 1234 -Question 'What is nine plus twelve?' -TranscriptPattern 'What is (9|nine) plus (12|twelve)' -AnswerPattern '21' -AnswerNow
+.EXAMPLE
+pwsh scripts/test_packaged_listen.ps1 -ProcessId 1234 -Question 'I will send the file tomorrow.' -TranscriptPattern 'send the file tomorrow' -ExpectSilence
 
 The transcript and answer arguments are regular expressions. AnswerPattern is
 matched anywhere in the active answer card, so a correct explanatory answer
@@ -14,8 +18,14 @@ param(
   [string]$TranscriptPattern = 'What is (9|nine) plus (12|twelve)',
   [string]$AnswerPattern = '21',
   [ValidateRange(5, 90)][int]$TimeoutSeconds = 30,
+  [switch]$AnswerNow,
+  [switch]$ExpectSilence,
   [switch]$Trace
 )
+
+if ($AnswerNow -and $ExpectSilence) {
+  throw 'AnswerNow and ExpectSilence cannot be used together.'
+}
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
@@ -50,6 +60,16 @@ function Invoke-Button($window, [string]$name) {
   $button = Find-Button $window $name
   if ($null -eq $button) { throw "Button missing: $name" }
   $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+}
+
+function Get-SelectedAutoMode($window) {
+  foreach ($name in @('Off', 'On question', 'Questions + requests')) {
+    $button = Find-Button $window $name
+    if ($null -ne $button -and $button.Current.ClassName -match 'bg-primary') {
+      return $name
+    }
+  }
+  throw 'The selected automatic-response mode could not be found.'
 }
 
 function Find-CaptureButton($window) {
@@ -109,9 +129,11 @@ $capture = Get-CaptureButton $window
 $opened = $false
 $wasManual = $false
 $wasMicOn = $false
+$previousAutoMode = $null
 $result = [ordered]@{
   Question = $Question
   TranscriptDetected = $false
+  ManualFallbackClicked = $false
   AnswerStarted = $false
   AnswerVisible = $false
   TranscriptVisibleMs = $null
@@ -141,13 +163,22 @@ try {
     }
   }
   if ($wasMicOn) { Invoke-Button $window 'Mic On' }
+  if ($AnswerNow) {
+    if ($null -eq (Find-Button $window 'Off')) { Invoke-Button $window 'Settings' }
+    $previousAutoMode = Get-SelectedAutoMode $window
+    if ($previousAutoMode -ne 'Off') { Invoke-Button $window 'Off' }
+  }
 
   $voice = New-Object -ComObject SAPI.SpVoice
   $voice.Rate = 1
   $baselineAnswerPrompt = Get-AnswerPrompt (Get-DocumentText $window)
   $null = $voice.Speak($Question)
   $speechEndedAt = Now-Milliseconds
-  $deadline = $speechEndedAt + $TimeoutSeconds * 1000
+  $deadline = $speechEndedAt + $(if ($ExpectSilence) {
+    [Math]::Min($TimeoutSeconds, 8) * 1000
+  } else {
+    $TimeoutSeconds * 1000
+  })
 
   while ((Now-Milliseconds) -lt $deadline) {
     $display = Get-DocumentText $window
@@ -155,6 +186,13 @@ try {
     if (-not $result.TranscriptDetected -and $display -match $TranscriptPattern) {
       $result.TranscriptDetected = $true
       $result.TranscriptVisibleMs = $now - $speechEndedAt
+    }
+    if ($AnswerNow -and $result.TranscriptDetected -and -not $result.ManualFallbackClicked) {
+      $manualButton = Find-Button $window 'Answer now'
+      if ($null -ne $manualButton -and $manualButton.Current.IsEnabled) {
+        $manualButton.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+        $result.ManualFallbackClicked = $true
+      }
     }
     $answerPrompt = Get-AnswerPrompt $display
     if (-not $result.AnswerStarted -and $result.TranscriptDetected -and
@@ -182,6 +220,9 @@ try {
 } finally {
   if ($opened) {
     try {
+      if ($null -ne $previousAutoMode -and $previousAutoMode -ne 'Off') {
+        Invoke-Button $window $previousAutoMode
+      }
       if ($wasManual) {
         Invoke-Button $window 'Manual (press to record)'
         Start-Sleep -Seconds 2
@@ -199,5 +240,10 @@ try {
 }
 
 [pscustomobject]$result
+if ($ExpectSilence) {
+  if (-not $result.TranscriptDetected -or $result.AnswerStarted -or $result.ProviderError) { exit 1 }
+  exit 0
+}
 if (-not $result.TranscriptDetected -or -not $result.AnswerVisible -or
-    $null -eq $result.TotalAnswerMs -or $result.ProviderError) { exit 1 }
+    $null -eq $result.TotalAnswerMs -or $result.ProviderError -or
+    ($AnswerNow -and -not $result.ManualFallbackClicked)) { exit 1 }
