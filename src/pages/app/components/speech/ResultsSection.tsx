@@ -10,6 +10,7 @@ type Props = {
   partialMicCaption: string;
   lastAIResponse: string;
   isAIProcessing: boolean;
+  latestSystemTurnText: string | null;
   deepAIResponse: string;
   isDeepProcessing: boolean;
   deepAnswerStatus: "draft" | null;
@@ -27,6 +28,7 @@ export const ResultsSection = ({
   partialMicCaption,
   lastAIResponse,
   isAIProcessing,
+  latestSystemTurnText,
   deepAIResponse,
   isDeepProcessing,
   deepAnswerStatus,
@@ -41,7 +43,7 @@ export const ResultsSection = ({
   const latestText = lastTranscription.replace(/^(System|Mic):\s*/i, "");
   const showLatestTranscript = !!lastTranscription && (!hasResponse || latestText !== lastAnswerPrompt);
 
-  if (!hasResponse && !lastTranscription && !partialSystemCaption && !partialMicCaption) {
+  if (!hasResponse && !lastTranscription && !partialSystemCaption && !partialMicCaption && !latestSystemTurnText) {
     return null;
   }
 
@@ -55,7 +57,7 @@ export const ResultsSection = ({
         <div className="flex items-center gap-1.5">
           <SparklesIcon className="w-3.5 h-3.5 text-primary" />
           <h4 className="text-xs font-medium">
-            {conversationMode ? "Conversation" : "AI Response"}
+            {conversationMode ? "Conversation" : "Listen answers"}
           </h4>
         </div>
         <div className="flex items-center gap-2 select-none">
@@ -82,6 +84,19 @@ export const ResultsSection = ({
         <p className="text-[11px] text-muted-foreground">
           <span className="font-semibold">Latest transcript · </span>{lastTranscription}
         </p>
+      )}
+
+      {latestSystemTurnText && (
+        <div className="rounded-md border border-border/50 bg-background/60 p-2.5 space-y-2">
+          <p className="text-[11px] text-muted-foreground line-clamp-3">
+            <span className="font-semibold">Latest call audio · </span>{latestSystemTurnText}
+          </p>
+          {!hasResponse && (
+            <p className="text-[11px] text-muted-foreground">
+              Automatic detection stayed silent. Use the Answer now button in the Listen bar to respond to this turn.
+            </p>
+          )}
+        </div>
       )}
 
       {/* Keep the answer tied to its original prompt as newer speech arrives. */}

@@ -443,6 +443,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
                       partialMicCaption={partialMicCaption}
                       lastAIResponse={lastAIResponse}
                       isAIProcessing={isAIProcessing}
+                      latestSystemTurnText={props.latestSystemTurn?.text ?? null}
                       deepAIResponse={deepAIResponse}
                       isDeepProcessing={isDeepProcessing}
                       deepAnswerStatus={deepAnswerStatus}

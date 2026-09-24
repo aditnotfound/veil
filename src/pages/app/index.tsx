@@ -127,6 +127,21 @@ const App = () => {
 
           <SystemAudio {...systemAudio} />
 
+          {isListen && (
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 flex-shrink-0 text-[11px]"
+              title={systemAudio.latestSystemTurn
+                ? "Answer the latest completed call-audio turn"
+                : "Waiting for a completed call-audio transcript"}
+              disabled={!systemAudio.capturing || !systemAudio.latestSystemTurn || systemAudio.isAIProcessing}
+              onClick={() => void systemAudio.answerLatestSystemTurn()}
+            >
+              {systemAudio.isAIProcessing ? "Answering…" : "Answer now"}
+            </Button>
+          )}
+
           {(systemAudio?.capturing || isListen) && (
             <div className="flex flex-row items-center gap-2 justify-between w-full min-w-0">
               <div className="flex flex-1 items-center gap-2 min-w-0">
@@ -150,19 +165,19 @@ const App = () => {
             </div>
           )}
 
-          {/* Compact transcript / response in Listen mode */}
+          {/* Compact preview; the full answer is in the expanded Listen panel. */}
           {showListenPanel &&
             (systemAudio.lastTranscription ||
               systemAudio.lastAIResponse ||
               systemAudio.isAIProcessing) && (
-              <div className="flex flex-col gap-0.5 min-w-0 max-w-[40%] flex-shrink">
+              <div className="flex flex-col gap-0.5 min-w-0 max-w-[30%] flex-shrink">
                 {systemAudio.lastTranscription && (
                   <p className="text-[10px] text-muted-foreground truncate">
                     {systemAudio.lastTranscription}
                   </p>
                 )}
                 {(systemAudio.lastAIResponse || systemAudio.isAIProcessing) && (
-                  <div className="text-[10px] truncate max-h-8 overflow-hidden prose prose-sm dark:prose-invert">
+                  <div className="text-[10px] truncate max-h-8 overflow-hidden prose prose-sm dark:prose-invert" title="Full answer appears in the expanded Listen panel">
                     {systemAudio.isAIProcessing &&
                     !systemAudio.lastAIResponse ? (
                       <span className="text-muted-foreground animate-pulse">

@@ -134,6 +134,7 @@ export function useSystemAudio() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isAIProcessing, setIsAIProcessing] = useState(false);
   const [lastTranscription, setLastTranscription] = useState<string>("");
+  const [latestSystemTurn, setLatestSystemTurn] = useState<FinalUtterance | null>(null);
   const [lastAIResponse, setLastAIResponse] = useState<string>("");
   const [lastAnswerPrompt, setLastAnswerPrompt] = useState<string>("");
   const [deepAIResponse, setDeepAIResponse] = useState<string>("");
@@ -206,6 +207,7 @@ export function useSystemAudio() {
     turnId?: string;
   } | null>(null);
   const answerInFlightRef = useRef(false);
+  const manualAnswerInFlightRef = useRef(false);
   const deepInFlightRef = useRef(false);
   const seenSystemSequencesRef = useRef(new Set<number>());
   const nextMicSequenceRef = useRef(0);
@@ -219,6 +221,8 @@ export function useSystemAudio() {
   const systemLiveRef = useRef<DeepgramLiveCaptions | null>(null);
 
   const cancelAnswerForSpeech = useCallback(() => {
+    // A user-requested answer should finish even if the call continues speaking.
+    if (manualAnswerInFlightRef.current) return;
     callCoreRef.current.cancelAnswer();
     if (answerInFlightRef.current) {
       answerInFlightRef.current = false;
@@ -768,8 +772,9 @@ export function useSystemAudio() {
                 cancelAnswerForSpeech();
                 // Dual-source label: system audio path is always "System"
                 setLastTranscription(`System: ${transcription.trim()}`);
+                setLatestSystemTurn(utterance);
 
-                if (decision.action === "short_answer") {
+                if (decision.action === "short_answer" && !manualAnswerInFlightRef.current) {
                   const paceMs = AUTO_RESPONSE_PACE_MS[autoResponsePace];
                   const job = callCoreRef.current.beginAnswer();
                   try {
@@ -1246,6 +1251,41 @@ export function useSystemAudio() {
     [selectedAIProvider, allAiProviders]
   );
 
+  const answerLatestSystemTurn = useCallback(async () => {
+    const turn = latestSystemTurn;
+    if (!turn || turn.sessionId !== callCoreRef.current.activeSessionId) {
+      setError("Wait for a completed call-audio transcript before requesting an answer.");
+      return;
+    }
+    if (manualAnswerInFlightRef.current) return;
+
+    manualAnswerInFlightRef.current = true;
+    setIsPopoverOpen(true);
+    await resizeWindow(true);
+    const job = callCoreRef.current.beginAnswer();
+    const effectiveSystemPrompt = useSystemPrompt
+      ? systemPrompt || DEFAULT_SYSTEM_PROMPT
+      : contextContent || DEFAULT_SYSTEM_PROMPT;
+    try {
+      const answered = await processWithAI(
+        turn.text,
+        callCardPrompt(effectiveSystemPrompt),
+        callCoreRef.current.historyBefore(turn.id),
+        job,
+        undefined,
+        turn.id
+      );
+      if (answered && job.isCurrent()) {
+        lastAnsweredRef.current = {
+          normalizedText: normalizeTurn(turn.text),
+          endedAt: turn.endedAt,
+        };
+      }
+    } finally {
+      manualAnswerInFlightRef.current = false;
+    }
+  }, [latestSystemTurn, useSystemPrompt, systemPrompt, contextContent, processWithAI, resizeWindow]);
+
   const goDeeper = useCallback(async () => {
     const completed = completedCardRef.current;
     if (!completed || deepInFlightRef.current || answerInFlightRef.current) return;
@@ -1482,6 +1522,7 @@ export function useSystemAudio() {
       lastAnsweredRef.current = null;
       completedCardRef.current = null;
       answerInFlightRef.current = false;
+      manualAnswerInFlightRef.current = false;
       deepInFlightRef.current = false;
       systemSpeechActiveRef.current = false;
       micSpeechActiveRef.current = false;
@@ -1494,6 +1535,7 @@ export function useSystemAudio() {
       setDeepAnswerError("");
       setIsDeepProcessing(false);
       setLastTranscription("");
+      setLatestSystemTurn(null);
       setConversation({
         id: conversationId,
         title: "",
@@ -1557,6 +1599,7 @@ export function useSystemAudio() {
     lastAnsweredRef.current = null;
     completedCardRef.current = null;
     answerInFlightRef.current = false;
+    manualAnswerInFlightRef.current = false;
     deepInFlightRef.current = false;
     systemSpeechActiveRef.current = false;
     micSpeechActiveRef.current = false;
@@ -1577,6 +1620,7 @@ export function useSystemAudio() {
       setIsRecordingInContinuousMode(false);
       setRecordingProgress(0);
       setLastTranscription("");
+      setLatestSystemTurn(null);
       setLastAIResponse("");
       setLastAnswerPrompt("");
       setDeepAIResponse("");
@@ -1885,6 +1929,7 @@ export function useSystemAudio() {
     isProcessing,
     isAIProcessing,
     lastTranscription,
+    latestSystemTurn,
     lastAIResponse,
     lastAnswerPrompt,
     deepAIResponse,
@@ -1903,6 +1948,7 @@ export function useSystemAudio() {
     setConversation,
     // AI processing
     processWithAI,
+    answerLatestSystemTurn,
     goDeeper,
     // Context management
     useSystemPrompt,
