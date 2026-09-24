@@ -9,7 +9,8 @@ param(
   [string]$Question = 'What is nine plus twelve?',
   [string]$TranscriptPattern = 'What is (9|nine) plus (12|twelve)',
   [string]$AnswerPattern = '21',
-  [ValidateRange(5, 90)][int]$TimeoutSeconds = 30
+  [ValidateRange(5, 90)][int]$TimeoutSeconds = 30,
+  [switch]$Trace
 )
 
 $ErrorActionPreference = 'Stop'
@@ -78,6 +79,23 @@ function Get-DocumentText($window) {
   return ''
 }
 
+function Get-AnswerPrompt($display) {
+  $matches = [regex]::Matches($display, '(?m)Answering\s*[·:]\s*(?<prompt>[^\r\n]+)')
+  if ($matches.Count -eq 0) { return '' }
+  return $matches[$matches.Count - 1].Groups['prompt'].Value.Trim()
+}
+
+function Get-VisibleAnswerText($display) {
+  # Restrict matching to the active card. Searching the whole document can
+  # mistake a previous answer or transcript text for the new answer.
+  $matches = [regex]::Matches(
+    $display,
+    '(?is)Answering\s*[·:]\s*[^\r\n]+\s+Initial\s*[·:]\s*unverified\s*(?<answer>.*?)(?:\r?\nGo deeper|$)'
+  )
+  if ($matches.Count -eq 0) { return '' }
+  return $matches[$matches.Count - 1].Groups['answer'].Value.Trim()
+}
+
 function Now-Milliseconds {
   return [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 }
@@ -122,6 +140,7 @@ try {
 
   $voice = New-Object -ComObject SAPI.SpVoice
   $voice.Rate = 1
+  $baselineAnswerPrompt = Get-AnswerPrompt (Get-DocumentText $window)
   $null = $voice.Speak($Question)
   $speechEndedAt = Now-Milliseconds
   $deadline = $speechEndedAt + $TimeoutSeconds * 1000
@@ -134,10 +153,17 @@ try {
       $result.TranscriptDetected = $true
       $result.TranscriptVisibleMs = $now - $speechEndedAt
     }
-    if (-not $result.AnswerStarted -and $display -match 'Answering\s*[·:]') {
+    $answerPrompt = Get-AnswerPrompt $display
+    if (-not $result.AnswerStarted -and $result.TranscriptDetected -and
+        $answerPrompt -and $answerPrompt -ne $baselineAnswerPrompt) {
       $result.AnswerStarted = $true
     }
-    if ($result.AnswerStarted -and -not $result.AnswerVisible -and $display -match $answerLine) {
+    $visibleAnswer = Get-VisibleAnswerText $display
+    if ($Trace -and ($display -match 'Answering\s*[·:]' -or $result.AnswerStarted)) {
+      Write-Host ("TRACE prompt=[{0}] answer=[{1}]" -f $answerPrompt, $visibleAnswer)
+    }
+    if ($result.AnswerStarted -and -not $result.AnswerVisible -and
+        $visibleAnswer -match $answerLine) {
       $result.AnswerVisible = $true
       $result.FirstAnswerVisibleMs = $now - $speechEndedAt
     }
