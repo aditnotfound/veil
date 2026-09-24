@@ -636,7 +636,9 @@ export function useSystemAudio() {
           if (!capturing || !callCoreRef.current.activeSessionId) return;
           systemSpeechActiveRef.current = true;
           setPartialSystemCaption("");
-          cancelAnswerForSpeech();
+          // Do not cancel a visible answer on speculative speech. The finalized
+          // turn below decides whether this is a new question and then cancels
+          // obsolete work if needed.
         });
         if (disposed) unlistenStart();
         else speechStartUnlisten = unlistenStart;
@@ -1263,6 +1265,17 @@ export function useSystemAudio() {
     setIsPopoverOpen(true);
     await resizeWindow(true);
     const job = callCoreRef.current.beginAnswer();
+    const answerStartedAt = Date.now();
+    const answerStartedPerf = performance.now();
+    const waitBeforeAnswerMs = Math.max(0, answerStartedAt - turn.endedAt);
+    const timing: CallTurnTiming = {
+      turnId: turn.id,
+      sessionId: turn.sessionId,
+      source: "system",
+      audioReadyAt: turn.endedAt,
+      waitBeforeAnswerMs,
+      status: "answer_error",
+    };
     const effectiveSystemPrompt = useSystemPrompt
       ? systemPrompt || DEFAULT_SYSTEM_PROMPT
       : contextContent || DEFAULT_SYSTEM_PROMPT;
@@ -1272,9 +1285,14 @@ export function useSystemAudio() {
         callCardPrompt(effectiveSystemPrompt),
         callCoreRef.current.historyBefore(turn.id),
         job,
-        undefined,
+        (firstChunkPerf) => {
+          timing.answerToFirstChunkMs = firstChunkPerf - answerStartedPerf;
+          timing.audioToFirstChunkMs = waitBeforeAnswerMs + timing.answerToFirstChunkMs;
+        },
         turn.id
       );
+      timing.answerTotalMs = performance.now() - answerStartedPerf;
+      timing.status = !job.isCurrent() ? "canceled" : answered ? "answered" : "answer_error";
       if (answered && job.isCurrent()) {
         lastAnsweredRef.current = {
           normalizedText: normalizeTurn(turn.text),
@@ -1282,6 +1300,9 @@ export function useSystemAudio() {
         };
       }
     } finally {
+      await saveCallTurnTiming(timing).catch((error) =>
+        console.error("Failed to save manual answer timing:", error)
+      );
       manualAnswerInFlightRef.current = false;
     }
   }, [latestSystemTurn, useSystemPrompt, systemPrompt, contextContent, processWithAI, resizeWindow]);
@@ -1795,6 +1816,7 @@ export function useSystemAudio() {
         lastAnsweredRef.current = null;
         completedCardRef.current = null;
         answerInFlightRef.current = false;
+        manualAnswerInFlightRef.current = false;
         deepInFlightRef.current = false;
       }
     } catch (err) {
@@ -1810,6 +1832,7 @@ export function useSystemAudio() {
       updatedAt: 0,
     });
     setLastTranscription("");
+    setLatestSystemTurn(null);
     setLastAIResponse("");
     setLastAnswerPrompt("");
     setDeepAIResponse("");
