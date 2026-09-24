@@ -36,7 +36,7 @@ import { deleteCallSessionPlanRevision, saveCallSessionPlan } from "@/lib/databa
 import type { AnswerStreamEvent } from "@/lib/call/answer-card";
 import { buildJevShadowRequest, requestJevShadow } from "@/lib/call/jev-shadow";
 import { DeepgramLiveCaptions, pcm16FromBase64, pcm16FromFloat, type CaptionStatus } from "@/lib/call/deepgram-live-captions";
-import { routeCallTurn, normalizeTurn, callCardPrompt, deepCallPrompt, shouldCancelAnswerForDecision, type AnsweredTurn, type AutoResponseMode, type CallDecision } from "@/lib/call/decision-router";
+import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, callCardPrompt, deepCallPrompt, shouldCancelAnswerForDecision, type AnsweredTurn, type AutoResponseMode, type CallDecision } from "@/lib/call/decision-router";
 import { formatSessionLedgerEvidence, selectSessionLedgerEntries } from "@/lib/call/session-ledger";
 import { buildSessionPlannerSnapshot, formatSessionPlanEvidence, parseSessionPlan, SESSION_PLANNER_MILESTONE, SESSION_PLANNER_PROMPT, SessionPlannerCoordinator, type ActiveSessionPlan } from "@/lib/call/session-planner";
 import { selectedModelName, withModelOverride } from "@/lib/call/deep-provider";
@@ -150,6 +150,7 @@ export function useSystemAudio() {
     useState<boolean>(false);
   const [showQuickActions, setShowQuickActions] = useState<boolean>(true);
   const [vadConfig, setVadConfig] = useState<VadConfig>(DEFAULT_VAD_CONFIG);
+  const [isModeSwitching, setIsModeSwitching] = useState(false);
   const [recordingProgress, setRecordingProgress] = useState<number>(0); // For continuous mode
   const [isContinuousMode, setIsContinuousMode] = useState<boolean>(false);
   const [isRecordingInContinuousMode, setIsRecordingInContinuousMode] =
@@ -222,12 +223,14 @@ export function useSystemAudio() {
   const seenSystemSequencesRef = useRef(new Set<number>());
   const nextMicSequenceRef = useRef(0);
   const latestCompletedSystemSequenceRef = useRef(0);
+  const latestRoutedAnswerSequenceRef = useRef(0);
   const latestShownStartedAtRef = useRef(0);
   const pendingSttRef = useRef(0);
   const jevShadowControllersRef = useRef(new Set<AbortController>());
   const sessionPlannerRef = useRef(new SessionPlannerCoordinator());
   const activeSessionPlanRef = useRef<ActiveSessionPlan | null>(null);
   const startingCaptureRef = useRef(false);
+  const modeSwitchingRef = useRef(false);
   const systemLiveRef = useRef<DeepgramLiveCaptions | null>(null);
 
   const cancelAnswerForSpeech = useCallback(() => {
@@ -765,15 +768,20 @@ export function useSystemAudio() {
                   timing.status = "canceled";
                   return;
                 }
-                // A later microphone turn may update the displayed transcript,
-                // but it must not suppress a pending system-audio question.
-                const superseded = sequence < latestCompletedSystemSequenceRef.current;
+                const latestSystemSequence = sequence >= latestCompletedSystemSequenceRef.current;
                 latestCompletedSystemSequenceRef.current = Math.max(
                   latestCompletedSystemSequenceRef.current, sequence
                 );
-                const decision: CallDecision = superseded
-                  ? { action: "silence", reason: "superseded", utteranceId: utterance.id }
-                  : routeCallTurn(utterance, autoResponseMode, lastAnsweredRef.current);
+                const decision: CallDecision = routeSequencedSystemTurn(
+                  utterance, autoResponseMode, lastAnsweredRef.current,
+                  latestRoutedAnswerSequenceRef.current
+                );
+                if (decision.action === "short_answer") {
+                  latestRoutedAnswerSequenceRef.current = Math.max(
+                    latestRoutedAnswerSequenceRef.current, sequence
+                  );
+                }
+                const superseded = decision.reason === "superseded";
                 if (utterancePersisted) {
                   await saveCallTurnDecision(sessionId, decision, autoResponseMode, Date.now())
                     .catch((err) => console.error("Failed to save call decision:", err));
@@ -789,7 +797,7 @@ export function useSystemAudio() {
                   // Dual-source label: system audio path is always "System"
                   setLastTranscription(`System: ${transcription.trim()}`);
                 }
-                setLatestSystemTurn(utterance);
+                if (latestSystemSequence) setLatestSystemTurn(utterance);
 
                 if (decision.action === "short_answer" && !manualAnswerInFlightRef.current) {
                   const paceMs = AUTO_RESPONSE_PACE_MS[autoResponsePace];
@@ -1558,6 +1566,7 @@ export function useSystemAudio() {
       seenSystemSequencesRef.current.clear();
       nextMicSequenceRef.current = 0;
       latestCompletedSystemSequenceRef.current = 0;
+      latestRoutedAnswerSequenceRef.current = 0;
       latestShownStartedAtRef.current = 0;
       pendingSttRef.current = 0;
       lastAnsweredRef.current = null;
@@ -1833,6 +1842,7 @@ export function useSystemAudio() {
         seenSystemSequencesRef.current.clear();
         nextMicSequenceRef.current = 0;
         latestCompletedSystemSequenceRef.current = 0;
+        latestRoutedAnswerSequenceRef.current = 0;
         latestShownStartedAtRef.current = 0;
         pendingSttRef.current = 0;
         lastAnsweredRef.current = null;
@@ -1883,6 +1893,47 @@ export function useSystemAudio() {
       console.error("Failed to update VAD config:", error);
     }
   }, []);
+
+  const switchCaptureMode = useCallback(async (vadEnabled: boolean) => {
+    if (modeSwitchingRef.current || vadConfig.enabled === vadEnabled) return;
+    const nextConfig = { ...vadConfig, enabled: vadEnabled };
+    if (!capturing) {
+      await updateVadConfiguration(nextConfig);
+      return;
+    }
+
+    modeSwitchingRef.current = true;
+    setIsModeSwitching(true);
+    const deviceId = selectedAudioDevices.output.id !== "default"
+      ? selectedAudioDevices.output.id : null;
+    const liveCaptions = liveCaptionsEnabled && selectedSttProvider.provider === "deepgram-stt";
+    try {
+      // The native task chooses VAD or manual mode only when it starts.
+      // Restart that task while retaining this call session and its transcript.
+      await invoke("stop_system_audio_capture");
+      await invoke("start_system_audio_capture", {
+        vadConfig: nextConfig, deviceId, liveCaptions,
+      });
+      await updateVadConfiguration(nextConfig);
+      setIsContinuousMode(!vadEnabled);
+      setIsRecordingInContinuousMode(false);
+      setError("");
+    } catch (switchError) {
+      try {
+        await invoke("start_system_audio_capture", {
+          vadConfig, deviceId, liveCaptions,
+        });
+        setError(`Could not switch Listen mode: ${String(switchError)}`);
+      } catch (restoreError) {
+        await stopCapture();
+        setError(`Audio capture stopped after the mode switch failed: ${String(restoreError)}`);
+      }
+    } finally {
+      modeSwitchingRef.current = false;
+      setIsModeSwitching(false);
+    }
+  }, [capturing, vadConfig, selectedAudioDevices.output.id,
+      liveCaptionsEnabled, selectedSttProvider.provider, updateVadConfiguration, stopCapture]);
 
   useEffect(() => {
     if (capturing) {
@@ -2018,6 +2069,8 @@ export function useSystemAudio() {
     // VAD configuration
     vadConfig,
     updateVadConfiguration,
+    switchCaptureMode,
+    isModeSwitching,
     // Continuous recording
     isContinuousMode,
     isRecordingInContinuousMode,

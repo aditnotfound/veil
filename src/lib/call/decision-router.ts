@@ -72,3 +72,18 @@ export function routeCallTurn(
   }
   return silence("not_a_request");
 }
+
+/** A later silent fragment must not hide a question whose STT finishes later. */
+export function routeSequencedSystemTurn(
+  utterance: FinalUtterance,
+  mode: AutoResponseMode,
+  lastAnswered: AnsweredTurn | null,
+  latestRoutedAnswerSequence: number
+): CallDecision {
+  const decision = routeCallTurn(utterance, mode, lastAnswered);
+  if (decision.action === "short_answer" &&
+      utterance.sequence < latestRoutedAnswerSequence) {
+    return { action: "silence", reason: "superseded", utteranceId: utterance.id };
+  }
+  return decision;
+}

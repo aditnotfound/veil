@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { routeCallTurn, normalizeTurn, deepCallPrompt, shouldCancelAnswerForDecision } from "../src/lib/call/decision-router.ts";
+import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, deepCallPrompt, shouldCancelAnswerForDecision } from "../src/lib/call/decision-router.ts";
 
 const turn = (text, source = "system", endedAt = 10_000) => ({
   id: `call:${source}:1`, sessionId: "call", source, sequence: 1,
@@ -47,6 +47,19 @@ test("only a finalized answer-worthy turn cancels an in-flight answer", () => {
   const statement = routeCallTurn(turn("We will review the proposal tomorrow"), "on_question");
   assert.equal(shouldCancelAnswerForDecision(question), true);
   assert.equal(shouldCancelAnswerForDecision(statement), false);
+});
+
+test("out-of-order trailing speech does not suppress an earlier question", () => {
+  const trailing = { ...turn("Please give the number only"), id: "call:system:3", sequence: 3 };
+  const question = { ...turn("What is 5 plus 6?"), id: "call:system:2", sequence: 2 };
+  assert.equal(routeSequencedSystemTurn(trailing, "after_pause", null, 0).action, "silence");
+  assert.equal(routeSequencedSystemTurn(question, "after_pause", null, 0).action, "short_answer");
+
+  const newerQuestion = { ...turn("What is 8 plus 9?"), id: "call:system:3", sequence: 3 };
+  assert.equal(routeSequencedSystemTurn(newerQuestion, "after_pause", null, 0).action, "short_answer");
+  assert.deepEqual(routeSequencedSystemTurn(question, "after_pause", null, 3), {
+    action: "silence", reason: "superseded", utteranceId: question.id,
+  });
 });
 
 test("off, mic source, and recent successful repeat all abstain", () => {

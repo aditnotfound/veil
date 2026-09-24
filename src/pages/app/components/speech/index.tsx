@@ -67,6 +67,8 @@ export const SystemAudio = (props: useSystemAudioType) => {
     handleQuickActionClick,
     vadConfig,
     updateVadConfiguration,
+    switchCaptureMode,
+    isModeSwitching,
     isRecordingInContinuousMode,
     recordingProgress,
     manualStopAndSend,
@@ -138,6 +140,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
   }, [isPopoverOpen]);
 
   const handleToggleCapture = async () => {
+    if (isModeSwitching) return;
     if (capturing) {
       await stopCapture();
     } else {
@@ -146,10 +149,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
   };
 
   const handleModeChange = (vadEnabled: boolean) => {
-    updateVadConfiguration({
-      ...vadConfig,
-      enabled: vadEnabled,
-    });
+    void switchCaptureMode(vadEnabled);
   };
 
   // Capture screenshot functionality
@@ -238,6 +238,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
           size="icon"
           title={getButtonTitle()}
           onClick={handleToggleCapture}
+          disabled={isModeSwitching}
           className={cn(
             capturing && "bg-green-50 hover:bg-green-100",
             error && "bg-red-100 hover:bg-red-200"
@@ -264,6 +265,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
                     isVadMode={isVadMode}
                     onModeChange={handleModeChange}
                     disabled={
+                      isModeSwitching ||
                       isRecordingInContinuousMode ||
                       isProcessing ||
                       isAIProcessing
