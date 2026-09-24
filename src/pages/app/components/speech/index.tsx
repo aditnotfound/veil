@@ -116,6 +116,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
   const [conversationMode, setConversationMode] = useState(false);
 
   const [isCapturingScreenshot, setIsCapturingScreenshot] = useState(false);
+  const [screenshotError, setScreenshotError] = useState("");
 
   const isVadMode = vadConfig.enabled;
   const hasResponse = lastAIResponse || isAIProcessing;
@@ -156,6 +157,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
     if (isCapturingScreenshot) return;
 
     setIsCapturingScreenshot(true);
+    setScreenshotError("");
     try {
       // Check screen recording permission on macOS
       const platform = navigator.platform.toLowerCase();
@@ -174,19 +176,23 @@ export const SystemAudio = (props: useSystemAudioType) => {
       }
 
       // Capture screenshot
-      const base64: string = await invoke("capture_screenshot", {
-        screenId: null, // Use default screen
-      });
+      const base64: string = await invoke("capture_to_base64");
 
       setAttachedScreenshot(base64);
     } catch (err) {
       console.error("Failed to capture screenshot:", err);
+      setScreenshotError(
+        err instanceof Error ? err.message : "Screen capture failed. Check Windows capture permissions."
+      );
     } finally {
       setIsCapturingScreenshot(false);
     }
   }, [isCapturingScreenshot]);
 
-  const handleRemoveScreenshot = clearAttachedScreenshot;
+  const handleRemoveScreenshot = useCallback(() => {
+    clearAttachedScreenshot();
+    setScreenshotError("");
+  }, [clearAttachedScreenshot]);
 
   const getButtonIcon = () => {
     if (setupRequired) return <AlertCircleIcon className="text-orange-500" />;
@@ -379,6 +385,11 @@ export const SystemAudio = (props: useSystemAudioType) => {
                       <XIcon className="h-3 w-3" />
                     </Button>
                   </div>
+                )}
+                {screenshotError && (
+                  <p role="alert" className="text-[10px] text-destructive rounded border border-destructive/20 p-2">
+                    Screenshot failed: {screenshotError}
+                  </p>
                 )}
 
                 {/* Error Display */}
