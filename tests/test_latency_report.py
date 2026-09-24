@@ -21,13 +21,25 @@ class LatencyReportTests(unittest.TestCase):
                     "src-tauri/src/db/migrations/call-timing.sql").read_text())
                 db.execute("INSERT INTO call_sessions(id,started_at) VALUES (?,?)", ("s", 1))
                 db.execute(
+                    "INSERT INTO call_utterances VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    ("u2", "s", "mic", 1, 100, 200, "question"),
+                )
+                db.execute(
                     "INSERT INTO call_turn_timings(turn_id,session_id,source,audio_ready_at,audio_to_stt_ms,status) "
                     "VALUES (?,?,?,?,?,?)", ("u", "s", "mic", 1, 200, "transcribed")
                 )
+                db.execute(
+                    "INSERT INTO call_turn_timings(turn_id,session_id,source,audio_ready_at,"
+                    "audio_to_stt_ms,wait_before_answer_ms,answer_to_first_chunk_ms,answer_total_ms,status) "
+                    "VALUES (?,?,?,?,?,?,?,?,?)",
+                    ("u2", "s", "mic", 250, 200, 50, 300, 1000, "answered"),
+                )
                 db.commit()
             output = report(path)
-            self.assertIn("mic: 1 turns", output)
+            self.assertIn("mic: 2 turns", output)
             self.assertIn("p50=200 ms", output)
+            self.assertIn("Question end to first chunk: n=1, p50=600 ms, p95=600 ms", output)
+            self.assertIn("Question end to answer total: n=1, p50=1300 ms, p95=1300 ms", output)
             self.assertIn("First chunk may be incomplete", output)
 
 

@@ -17,6 +17,8 @@ METRICS = (
     ("answer_to_first_chunk_ms", "Answer start to first chunk"),
     ("audio_to_first_chunk_ms", "Audio ready to first chunk"),
     ("answer_total_ms", "Answer total"),
+    ("question_to_first_chunk_ms", "Question end to first chunk"),
+    ("question_to_answer_total_ms", "Question end to answer total"),
 )
 
 
@@ -36,14 +38,36 @@ def report(db_path: Path) -> str:
     with closing(sqlite3.connect(f"{db_path.resolve().as_uri()}?mode=ro", uri=True)) as db:
         db.row_factory = sqlite3.Row
         rows = db.execute(
-            "SELECT source, status, audio_to_stt_ms, wait_before_answer_ms, "
-            "answer_to_first_chunk_ms, audio_to_first_chunk_ms, answer_total_ms "
-            "FROM call_turn_timings"
+            "SELECT t.source, t.status, t.audio_ready_at, u.ended_at AS question_ended_at, "
+            "t.audio_to_stt_ms, t.wait_before_answer_ms, t.answer_to_first_chunk_ms, "
+            "t.audio_to_first_chunk_ms, t.answer_total_ms "
+            "FROM call_turn_timings t LEFT JOIN call_utterances u ON u.id = t.turn_id "
+            "AND u.session_id = t.session_id"
         ).fetchall()
 
     lines = [f"Turns: {len(rows)}"]
     for source in ("system", "mic"):
-        source_rows = [row for row in rows if row["source"] == source]
+        source_rows = []
+        for row in rows:
+            if row["source"] != source:
+                continue
+            enriched = dict(row)
+            if row["question_ended_at"] is not None:
+                question_to_answer_start = max(
+                    0.0,
+                    float(row["audio_ready_at"] - row["question_ended_at"]),
+                ) + float(row["audio_to_stt_ms"] or 0) + float(row["wait_before_answer_ms"] or 0)
+                if row["answer_to_first_chunk_ms"] is not None:
+                    enriched["question_to_first_chunk_ms"] = (
+                        question_to_answer_start + float(row["answer_to_first_chunk_ms"])
+                    )
+                if row["answer_total_ms"] is not None:
+                    enriched["question_to_answer_total_ms"] = (
+                        question_to_answer_start + float(row["answer_total_ms"])
+                    )
+            enriched.setdefault("question_to_first_chunk_ms", None)
+            enriched.setdefault("question_to_answer_total_ms", None)
+            source_rows.append(enriched)
         if not source_rows:
             continue
         lines.append(f"\n{source}: {len(source_rows)} turns")
@@ -60,7 +84,10 @@ def report(db_path: Path) -> str:
                     f"p50={percentile(values, 0.50):.0f} ms, "
                     f"p95={percentile(values, 0.95):.0f} ms"
                 )
-    lines.append("\nTiming starts when batch audio is ready after VAD. First chunk may be incomplete; neither metric proves a useful card appeared.")
+    lines.append(
+        "\nQuestion-end metrics use the finalized utterance end time and saved stage timings. "
+        "First chunk may be incomplete; neither metric proves a useful card appeared."
+    )
     return "\n".join(lines)
 
 
