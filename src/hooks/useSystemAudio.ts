@@ -23,6 +23,7 @@ import {
 import { Message } from "@/types/completion";
 import type { ListenModeWithPrompt } from "@/types";
 import { CallSessionCore, type AnswerJob, type FinalUtterance } from "@/lib/call/session-core";
+import { hasUsableAnswer } from "@/lib/call/answer-result";
 import { createCallSession, appendCallUtterance, endCallSession, searchCallUtterances } from "@/lib/database/call-session.action";
 import { formatCallEvidence } from "@/lib/call/local-search";
 import { estimateWavStartAt } from "@/lib/call/audio-timing";
@@ -1188,7 +1189,12 @@ export function useSystemAudio() {
           if (job.isCurrent()) setError(aiError.message || "Failed to get AI response");
         }
 
-        if (job.isCurrent() && fullResponse && !failed) {
+        if (!failed && !hasUsableAnswer(fullResponse)) {
+          failed = true;
+          if (job.isCurrent()) setError("AI provider returned an empty answer.");
+        }
+
+        if (job.isCurrent() && hasUsableAnswer(fullResponse) && !failed) {
           const timestamp = Date.now();
           setConversation((prev) => job.isCurrent() ? ({
             ...prev,
