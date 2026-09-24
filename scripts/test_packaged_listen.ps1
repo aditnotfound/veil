@@ -47,7 +47,7 @@ function Invoke-Button($window, [string]$name) {
   $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
 }
 
-function Get-CaptureButton($window) {
+function Find-CaptureButton($window) {
   foreach ($element in (Get-Elements $window)) {
     if ($element.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
         ($element.GetSupportedPatterns().ProgrammaticName -contains
@@ -55,6 +55,16 @@ function Get-CaptureButton($window) {
       return $element
     }
   }
+  return $null
+}
+
+function Get-CaptureButton($window, [int]$TimeoutMs = 15000) {
+  $deadline = [Environment]::TickCount64 + $TimeoutMs
+  do {
+    $button = Find-CaptureButton $window
+    if ($null -ne $button) { return $button }
+    Start-Sleep -Milliseconds 250
+  } while ([Environment]::TickCount64 -lt $deadline)
   throw 'Listen capture control was not found.'
 }
 
