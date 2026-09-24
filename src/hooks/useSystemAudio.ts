@@ -1189,6 +1189,7 @@ export function useSystemAudio() {
             history: historyWithEvidence,
             historyOrder: "chronological",
             knowledgeMode: "local",
+            responseProfile: "live-short",
             onKnowledgeError: () => {
               if (job.isCurrent()) setError("Personal knowledge could not be searched locally.");
             },

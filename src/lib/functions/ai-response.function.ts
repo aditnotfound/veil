@@ -16,6 +16,7 @@ import { getResponseSettings, RESPONSE_LENGTHS, LANGUAGES } from "@/lib";
 import { MARKDOWN_FORMATTING_INSTRUCTIONS } from "@/config/constants";
 import { retrievePersonalContext, retrievePersonalContextLocal } from "@/lib/knowledge";
 import { attachPersonalEvidence } from "@/lib/call/prompt-evidence";
+import { applyLiveAnswerProfile } from "@/lib/call/live-answer-profile";
 
 async function buildEnhancedSystemPrompt(params: {
   baseSystemPrompt?: string;
@@ -23,7 +24,7 @@ async function buildEnhancedSystemPrompt(params: {
   apiKey?: string;
   knowledgeMode?: "local" | "dense" | "none";
   onKnowledgeError?: () => void;
-  responseProfile?: "default" | "deep";
+  responseProfile?: "default" | "live-short" | "deep";
 }): Promise<{ prompt: string; personalContext: string }> {
   const { baseSystemPrompt, userMessage, apiKey, knowledgeMode, onKnowledgeError, responseProfile } = params;
   const responseSettings = getResponseSettings();
@@ -207,7 +208,7 @@ export async function* fetchAIResponse(params: {
   historyOrder?: "chronological" | "newest-first";
   knowledgeMode?: "local" | "none";
   onKnowledgeError?: () => void;
-  responseProfile?: "default" | "deep";
+  responseProfile?: "default" | "live-short" | "deep";
 }): AsyncIterable<string> {
   try {
     const {
@@ -329,6 +330,9 @@ export async function* fetchAIResponse(params: {
     };
 
     bodyObj = deepVariableReplacer(bodyObj, allVariables);
+    if (bodyObj && typeof bodyObj === "object" && !Array.isArray(bodyObj)) {
+      applyLiveAnswerProfile(bodyObj, provider.id ?? "", responseProfile ?? "default");
+    }
     let url = deepVariableReplacer(curlJson.url || "", allVariables);
 
     const headers = deepVariableReplacer(curlJson.header || {}, allVariables);
