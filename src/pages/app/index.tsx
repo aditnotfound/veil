@@ -62,6 +62,9 @@ const App = () => {
   const isListen = overlayMode === "listen";
   const showAskInput = !isListen && !systemAudio?.capturing;
   const showListenPanel = isListen;
+  // A finalized call turn can arrive while the overlay is still on Ask.
+  // Keep the manual fallback visible whenever there is something to answer.
+  const showAnswerNow = isListen || Boolean(systemAudio?.latestSystemTurn);
 
   return (
     <ErrorBoundary
@@ -127,7 +130,7 @@ const App = () => {
 
           <SystemAudio {...systemAudio} />
 
-          {isListen && (
+          {showAnswerNow && (
             <Button
               type="button"
               size="sm"
