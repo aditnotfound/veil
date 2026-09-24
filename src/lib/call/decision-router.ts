@@ -9,6 +9,11 @@ export type CallDecision =
   | { action: "silence"; reason: DecisionReason; utteranceId: string }
   | { action: "short_answer"; reason: "explicit_question" | "direct_request"; utteranceId: string };
 
+/** Only a finalized answer-worthy turn should supersede an in-flight answer. */
+export function shouldCancelAnswerForDecision(decision: CallDecision): boolean {
+  return decision.action === "short_answer";
+}
+
 export interface AnsweredTurn {
   normalizedText: string;
   endedAt: number;

@@ -35,7 +35,7 @@ import { deleteCallSessionPlanRevision, saveCallSessionPlan } from "@/lib/databa
 import type { AnswerStreamEvent } from "@/lib/call/answer-card";
 import { buildJevShadowRequest, requestJevShadow } from "@/lib/call/jev-shadow";
 import { DeepgramLiveCaptions, pcm16FromBase64, pcm16FromFloat, type CaptionStatus } from "@/lib/call/deepgram-live-captions";
-import { routeCallTurn, normalizeTurn, callCardPrompt, deepCallPrompt, type AnsweredTurn, type AutoResponseMode, type CallDecision } from "@/lib/call/decision-router";
+import { routeCallTurn, normalizeTurn, callCardPrompt, deepCallPrompt, shouldCancelAnswerForDecision, type AnsweredTurn, type AutoResponseMode, type CallDecision } from "@/lib/call/decision-router";
 import { formatSessionLedgerEvidence, selectSessionLedgerEntries } from "@/lib/call/session-ledger";
 import { buildSessionPlannerSnapshot, formatSessionPlanEvidence, parseSessionPlan, SESSION_PLANNER_MILESTONE, SESSION_PLANNER_PROMPT, SessionPlannerCoordinator, type ActiveSessionPlan } from "@/lib/call/session-planner";
 import { selectedModelName, withModelOverride } from "@/lib/call/deep-provider";
@@ -771,7 +771,9 @@ export function useSystemAudio() {
                 }
                 if (superseded) return;
                 latestShownStartedAtRef.current = startedAt;
-                cancelAnswerForSpeech();
+                if (shouldCancelAnswerForDecision(decision)) {
+                  cancelAnswerForSpeech();
+                }
                 // Dual-source label: system audio path is always "System"
                 setLastTranscription(`System: ${transcription.trim()}`);
                 setLatestSystemTurn(utterance);

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { routeCallTurn, normalizeTurn, deepCallPrompt } from "../src/lib/call/decision-router.ts";
+import { routeCallTurn, normalizeTurn, deepCallPrompt, shouldCancelAnswerForDecision } from "../src/lib/call/decision-router.ts";
 
 const turn = (text, source = "system", endedAt = 10_000) => ({
   id: `call:${source}:1`, sessionId: "call", source, sequence: 1,
@@ -40,6 +40,13 @@ test("questions and requests mode handles direct tasks without replying to every
     assert.equal(decision.reason, "direct_request", text);
   }
   assert.equal(routeCallTurn(turn("We should solve this later"), "after_pause").action, "silence");
+});
+
+test("only a finalized answer-worthy turn cancels an in-flight answer", () => {
+  const question = routeCallTurn(turn("What is the research question?"), "on_question");
+  const statement = routeCallTurn(turn("We will review the proposal tomorrow"), "on_question");
+  assert.equal(shouldCancelAnswerForDecision(question), true);
+  assert.equal(shouldCancelAnswerForDecision(statement), false);
 });
 
 test("off, mic source, and recent successful repeat all abstain", () => {
