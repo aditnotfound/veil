@@ -526,6 +526,49 @@ fn normalize_audio_level(samples: &[f32], target_rms: f32) -> Vec<f32> {
         .collect()
 }
 
+const STT_SAMPLE_RATE: u32 = 16_000;
+
+/// Resample mono PCM before sending it to an STT provider.
+///
+/// Device capture rates vary (commonly 44.1 or 48 kHz), while the built-in
+/// Google STT configuration is 16 kHz. Keeping the upload format consistent
+/// avoids provider-side sample-rate mismatches and reduces request size.
+fn resample_mono_linear(
+    samples: &[f32],
+    source_rate: u32,
+    target_rate: u32,
+) -> Result<Vec<f32>, String> {
+    if !(8_000..=96_000).contains(&source_rate)
+        || !(8_000..=96_000).contains(&target_rate)
+    {
+        return Err(format!(
+            "Invalid sample rate: source={} target={}. Expected 8000-96000 Hz",
+            source_rate, target_rate
+        ));
+    }
+    if samples.is_empty() || source_rate == target_rate {
+        return Ok(samples.to_vec());
+    }
+
+    let output_len = ((samples.len() as u64 * target_rate as u64)
+        .div_ceil(source_rate as u64))
+    .max(1) as usize;
+    let source_step = source_rate as f64 / target_rate as f64;
+    let last_index = samples.len() - 1;
+    let mut output = Vec::with_capacity(output_len);
+
+    for index in 0..output_len {
+        let source_position = index as f64 * source_step;
+        let left = source_position.floor() as usize;
+        let left = left.min(last_index);
+        let right = (left + 1).min(last_index);
+        let fraction = (source_position - left as f64) as f32;
+        output.push(samples[left] + (samples[right] - samples[left]) * fraction);
+    }
+
+    Ok(output)
+}
+
 // Convert samples to WAV base64 (with proper error handling)
 fn samples_to_wav_b64(sample_rate: u32, mono_f32: &[f32]) -> Result<String, String> {
     // Validate sample rate
@@ -542,10 +585,11 @@ fn samples_to_wav_b64(sample_rate: u32, mono_f32: &[f32]) -> Result<String, Stri
         return Err("Empty audio buffer".to_string());
     }
 
+    let stt_samples = resample_mono_linear(mono_f32, sample_rate, STT_SAMPLE_RATE)?;
     let mut cursor = Cursor::new(Vec::new());
     let spec = WavSpec {
         channels: 1,
-        sample_rate,
+        sample_rate: STT_SAMPLE_RATE,
         bits_per_sample: 16,
         sample_format: hound::SampleFormat::Int,
     };
@@ -555,7 +599,7 @@ fn samples_to_wav_b64(sample_rate: u32, mono_f32: &[f32]) -> Result<String, Stri
         e.to_string()
     })?;
 
-    for &s in mono_f32 {
+    for &s in &stt_samples {
         let clamped = s.clamp(-1.0, 1.0);
         let sample_i16 = (clamped * i16::MAX as f32) as i16;
         writer.write_sample(sample_i16).map_err(|e| e.to_string())?;
@@ -605,7 +649,11 @@ fn validate_vad_config(config: &VadConfig) -> Result<(), String> {
 
 #[cfg(test)]
 mod vad_config_tests {
-    use super::{scaled_vad_chunks, validate_vad_config, VadConfig};
+    use super::{
+        resample_mono_linear, samples_to_wav_b64, scaled_vad_chunks, validate_vad_config, VadConfig,
+    };
+    use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+    use std::io::Cursor;
 
     #[test]
     fn silence_duration_tracks_device_sample_rate() {
@@ -634,6 +682,39 @@ mod vad_config_tests {
             super::apply_noise_gate(&[0.0, 0.25, -0.5], 0.0),
             vec![0.0, 0.25, -0.5]
         );
+    }
+
+    #[test]
+    fn resampling_preserves_duration_and_endpoints() {
+        let input = vec![-1.0, -0.5, 0.0, 0.5, 1.0];
+        let output = resample_mono_linear(&input, 8_000, 16_000).unwrap();
+
+        assert_eq!(output.len(), 10);
+        assert!((output[0] + 1.0).abs() < 1e-6);
+        assert!((output[output.len() - 1] - 1.0).abs() < 1e-6);
+        assert!(output.windows(2).all(|pair| pair[0] <= pair[1]));
+    }
+
+    #[test]
+    fn equal_rate_resampling_is_lossless() {
+        let input = vec![0.1, -0.2, 0.3];
+        assert_eq!(resample_mono_linear(&input, 16_000, 16_000).unwrap(), input);
+    }
+
+    #[test]
+    fn resampling_rejects_invalid_rates() {
+        assert!(resample_mono_linear(&[0.0], 7_999, 16_000).is_err());
+        assert!(resample_mono_linear(&[0.0], 16_000, 96_001).is_err());
+    }
+
+    #[test]
+    fn stt_wav_header_uses_fixed_sample_rate() {
+        let encoded = samples_to_wav_b64(48_000, &vec![0.25; 480]).unwrap();
+        let bytes = B64.decode(encoded).unwrap();
+        let reader = hound::WavReader::new(Cursor::new(bytes)).unwrap();
+
+        assert_eq!(reader.spec().sample_rate, 16_000);
+        assert_eq!(reader.duration(), 160);
     }
 }
 
