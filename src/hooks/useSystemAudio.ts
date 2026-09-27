@@ -1298,7 +1298,12 @@ export function useSystemAudio() {
 
     manualAnswerInFlightRef.current = true;
     setIsPopoverOpen(true);
-    await resizeWindow(true);
+    try {
+      await resizeWindow(true);
+    } catch (error) {
+      // A window-layout failure must not permanently disable Answer now.
+      console.warn("Could not resize Listen for manual answer:", error);
+    }
     const transcribedTiming = await getCallTurnTiming(turn.id).catch((error) => {
       console.warn("Failed to load transcription timing for manual answer:", error);
       return null;
