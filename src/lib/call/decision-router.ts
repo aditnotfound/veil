@@ -1,7 +1,7 @@
 import type { FinalUtterance } from "./session-core";
 
 export type AutoResponseMode = "off" | "on_question" | "after_pause";
-export const ROUTER_VERSION = "deterministic-v1";
+export const ROUTER_VERSION = "deterministic-v2";
 export type DecisionReason =
   | "mode_off" | "mic_source" | "short_or_noisy" | "social_or_housekeeping"
   | "repeat_answered" | "not_a_request" | "superseded" | "explicit_question" | "direct_request";
@@ -20,8 +20,10 @@ export interface AnsweredTurn {
 }
 
 const QUESTION_START = /^(who|what|when|where|why|how|which|whose|is|are|was|were|do|does|did|can|could|would|should|will|have|has|may)\b/i;
+const CLEAR_QUESTION_AFTER_LEAD_IN = /^(?:(?:who|what|when|where|why|how|which|whose)\s+(?:is|are|was|were|do|does|did|can|could|would|should|will|have|has|may)|(?:is|are|was|were|do|does|did|can|could|would|should|will|have|has|may))\b/i;
 const DIRECT_REQUEST = /^(tell me(?: about)?|explain|describe|walk me through|compare|summarize|help me|solve|show me|give me|outline)\b/i;
 const SOCIAL_OR_HOUSEKEEPING = /^(?:hi|hello|hey|thanks?|thank you|okay|ok|right|yeah|yep|nope|um|uh|hmm|can you hear me|are you there|how are you|do you have any questions|any questions|what time is it|what's the time)[?.!,\s]*$/i;
+const DISCOURSE_LEAD_IN = /^(?:well|so|okay|ok|right|but|and|uh|um)\b[,;:]?\s+/i;
 const MAX_TURN_CHARS = 2000;
 const REPEAT_WINDOW_MS = 30_000;
 
@@ -29,9 +31,23 @@ export function normalizeTurn(text: string): string {
   return text.toLowerCase().replace(/[\p{P}\p{S}]+/gu, " ").replace(/\s+/g, " ").trim();
 }
 
+function withoutDiscourseLeadIn(text: string): string {
+  let remaining = text.trim();
+  for (let i = 0; i < 2; i++) {
+    const leadIn = remaining.match(DISCOURSE_LEAD_IN);
+    if (!leadIn) break;
+    remaining = remaining.slice(leadIn[0].length).trimStart();
+  }
+  return remaining;
+}
+
 export function looksLikeQuestion(text: string): boolean {
   const trimmed = text.trim();
-  return trimmed.includes("?") || QUESTION_START.test(trimmed);
+  const withoutLeadIn = withoutDiscourseLeadIn(trimmed);
+  if (withoutLeadIn.includes("?")) return true;
+  return withoutLeadIn === trimmed
+    ? QUESTION_START.test(withoutLeadIn)
+    : CLEAR_QUESTION_AFTER_LEAD_IN.test(withoutLeadIn);
 }
 
 export function callCardPrompt(basePrompt: string): string {
@@ -54,11 +70,12 @@ export function routeCallTurn(
   if (mode === "off") return silence("mode_off");
   if (utterance.source !== "system") return silence("mic_source");
   const text = utterance.text.trim();
+  const requestText = withoutDiscourseLeadIn(text);
   const normalized = normalizeTurn(text);
   if (text.length > MAX_TURN_CHARS || normalized.split(" ").length < 3) {
     return silence("short_or_noisy");
   }
-  if (SOCIAL_OR_HOUSEKEEPING.test(text)) return silence("social_or_housekeeping");
+  if (SOCIAL_OR_HOUSEKEEPING.test(requestText)) return silence("social_or_housekeeping");
   if (lastAnswered && normalized === lastAnswered.normalizedText &&
       utterance.endedAt >= lastAnswered.endedAt &&
       utterance.endedAt - lastAnswered.endedAt <= REPEAT_WINDOW_MS) {
@@ -67,7 +84,7 @@ export function routeCallTurn(
   if (looksLikeQuestion(text)) {
     return { action: "short_answer", reason: "explicit_question", utteranceId: utterance.id };
   }
-  if (mode === "after_pause" && DIRECT_REQUEST.test(text)) {
+  if (mode === "after_pause" && DIRECT_REQUEST.test(requestText)) {
     return { action: "short_answer", reason: "direct_request", utteranceId: utterance.id };
   }
   return silence("not_a_request");

@@ -29,6 +29,26 @@ test("question mode accepts explicit questions without punctuation but not instr
   assert.equal(routeCallTurn(turn("Explain the experiment design"), "on_question").action, "silence");
 });
 
+test("punctuation-free questions survive short conversational lead-ins", () => {
+  for (const text of [
+    "So why did the cache miss", "Okay but how does hashing work",
+    "Right what is the fallback plan", "And can we deploy this by Friday",
+  ]) {
+    const decision = routeCallTurn(turn(text), "on_question");
+    assert.equal(decision.action, "short_answer", text);
+    assert.equal(decision.reason, "explicit_question", text);
+  }
+  assert.equal(routeCallTurn(turn("Well explain the failure"), "on_question").action, "silence");
+  assert.equal(routeCallTurn(turn("Well explain the failure"), "after_pause").reason, "direct_request");
+  for (const text of [
+    "So do you have any questions", "Okay how are you", "Well I will send the file tomorrow",
+    "But what makes this program different is its mentoring structure",
+    "Okay what I mean is that the cache needs a reset",
+  ]) {
+    assert.equal(routeCallTurn(turn(text), "after_pause").action, "silence", text);
+  }
+});
+
 test("questions and requests mode handles direct tasks without replying to every pause", () => {
   for (const text of [
     "Explain the experiment design", "Walk me through the proof",
