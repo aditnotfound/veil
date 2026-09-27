@@ -36,6 +36,7 @@ import { appendCallSessionLedger } from "@/lib/database/call-session-ledger.acti
 import { deleteCallSessionPlanRevision, saveCallSessionPlan } from "@/lib/database/call-session-plan.action";
 import type { AnswerStreamEvent } from "@/lib/call/answer-card";
 import { buildJevShadowRequest, requestJevShadow } from "@/lib/call/jev-shadow";
+import { transcribeWithRetry } from "@/lib/call/transcribe-with-retry";
 import { DeepgramLiveCaptions, pcm16FromBase64, pcm16FromFloat, type CaptionStatus } from "@/lib/call/deepgram-live-captions";
 import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, callCardPrompt, deepCallPrompt, shouldCancelAnswerForDecision, type AnsweredTurn, type AutoResponseMode, type CallDecision } from "@/lib/call/decision-router";
 import { formatSessionLedgerEvidence, selectSessionLedgerEntries } from "@/lib/call/session-ledger";
@@ -112,20 +113,6 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
     };
     signal?.addEventListener("abort", onAbort, { once: true });
   });
-}
-
-async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`Transcription timed out (${ms / 1000}s)`)), ms);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
 }
 
 export function useSystemAudio() {
@@ -227,6 +214,7 @@ export function useSystemAudio() {
   const latestRoutedAnswerSequenceRef = useRef(0);
   const latestShownStartedAtRef = useRef(0);
   const pendingSttRef = useRef(0);
+  const sttSessionControllerRef = useRef(new AbortController());
   const jevShadowControllersRef = useRef(new Set<AbortController>());
   const sessionPlannerRef = useRef(new SessionPlannerCoordinator());
   const activeSessionPlanRef = useRef<ActiveSessionPlan | null>(null);
@@ -665,6 +653,7 @@ export function useSystemAudio() {
             if (!capturing) return;
             sessionId = callCoreRef.current.activeSessionId;
             if (!sessionId) return;
+            const sttSessionSignal = sttSessionControllerRef.current.signal;
             const payload = event.payload as {
               sequence: number;
               audioBase64: string;
@@ -719,14 +708,13 @@ export function useSystemAudio() {
             pendingSttRef.current += 1;
             setIsProcessing(true);
 
-            const sttPromise = fetchSTT({
-              provider: providerConfig,
-              selectedProvider: selectedSttProvider,
-              audio: audioBlob,
-            });
-
             try {
-              const transcription = await withTimeout(sttPromise, 30000);
+              const transcription = await transcribeWithRetry((signal) => fetchSTT({
+                provider: providerConfig,
+                selectedProvider: selectedSttProvider,
+                audio: audioBlob,
+                signal,
+              }), sttSessionSignal);
 
               timing.audioToSttMs = performance.now() - audioReadyPerf;
               sttStarted = false;
@@ -1475,6 +1463,7 @@ export function useSystemAudio() {
   const handleMicSegment = useCallback(async (audio: Blob, startedAt: number) => {
     micSpeechActiveRef.current = false;
     const sessionId = callCoreRef.current.activeSessionId;
+    const sttSessionSignal = sttSessionControllerRef.current.signal;
     if (!sessionId || !micEnabled) return;
     const sequence = ++nextMicSequenceRef.current;
     const endedAt = Date.now();
@@ -1497,11 +1486,12 @@ export function useSystemAudio() {
       if (!provider && !usePluelyAPI) {
         throw new Error("Speech provider config not found");
       }
-      const transcription = (await withTimeout(fetchSTT({
+      const transcription = (await transcribeWithRetry((signal) => fetchSTT({
         provider: usePluelyAPI ? undefined : provider,
         selectedProvider: selectedSttProvider,
         audio,
-      }), 30000)).trim();
+        signal,
+      }), sttSessionSignal)).trim();
       timing.audioToSttMs = performance.now() - audioReadyPerf;
       if (callCoreRef.current.activeSessionId !== sessionId) {
         timing.status = "canceled";
@@ -1597,6 +1587,8 @@ export function useSystemAudio() {
       await createCallSession(conversationId, Date.now());
       newSessionId = conversationId;
       callCoreRef.current.start(conversationId);
+      sttSessionControllerRef.current.abort();
+      sttSessionControllerRef.current = new AbortController();
       activeSessionPlanRef.current = null;
       if (sessionPlannerEnabled) sessionPlannerRef.current.start(conversationId);
       seenSystemSequencesRef.current.clear();
@@ -1660,6 +1652,7 @@ export function useSystemAudio() {
       setCapturing(true);
     } catch (err) {
       callCoreRef.current.stop();
+      sttSessionControllerRef.current.abort();
       setCapturing(false);
       if (newSessionId) {
         await endCallSession(newSessionId, Date.now()).catch(console.error);
@@ -1675,6 +1668,7 @@ export function useSystemAudio() {
   const stopCapture = useCallback(async () => {
             const sessionId = callCoreRef.current.activeSessionId;
     callCoreRef.current.stop();
+    sttSessionControllerRef.current.abort();
     sessionPlannerRef.current.stop();
     activeSessionPlanRef.current = null;
     setSessionPlannerEnabledState(false);
@@ -1808,6 +1802,7 @@ export function useSystemAudio() {
     return () => {
       const sessionId = callCoreRef.current.activeSessionId;
       callCoreRef.current.stop();
+      sttSessionControllerRef.current.abort();
       sessionPlannerRef.current.stop();
       activeSessionPlanRef.current = null;
       abortJevShadows();
@@ -1865,6 +1860,7 @@ export function useSystemAudio() {
   const startNewConversation = useCallback(async () => {
     const priorSessionId = callCoreRef.current.activeSessionId;
     callCoreRef.current.stop();
+    sttSessionControllerRef.current.abort();
     sessionPlannerRef.current.stop();
     activeSessionPlanRef.current = null;
     abortJevShadows();
@@ -1874,6 +1870,7 @@ export function useSystemAudio() {
       if (capturing) {
         await createCallSession(nextId, Date.now());
         callCoreRef.current.start(nextId);
+        sttSessionControllerRef.current = new AbortController();
         if (sessionPlannerEnabled) sessionPlannerRef.current.start(nextId);
         seenSystemSequencesRef.current.clear();
         nextMicSequenceRef.current = 0;

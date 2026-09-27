@@ -11,8 +11,9 @@ import curl2Json from "@bany/curl-to-json";
 import { shouldUsePluelyAPI } from "./pluely.api";
 
 // Pluely STT function
-async function fetchPluelySTT(audio: File | Blob): Promise<string> {
+async function fetchPluelySTT(audio: File | Blob, signal?: AbortSignal): Promise<string> {
   try {
+    signal?.throwIfAborted();
     // Convert audio to base64
     const audioBase64 = await blobToBase64(audio);
 
@@ -25,6 +26,7 @@ async function fetchPluelySTT(audio: File | Blob): Promise<string> {
       audioBase64,
     });
 
+    signal?.throwIfAborted();
     if (response.success && response.transcription) {
       return response.transcription;
     } else {
@@ -43,6 +45,7 @@ export interface STTParams {
     variables: Record<string, string>;
   };
   audio: File | Blob;
+  signal?: AbortSignal;
 }
 
 /**
@@ -52,12 +55,13 @@ export async function fetchSTT(params: STTParams): Promise<string> {
   let warnings: string[] = [];
 
   try {
-    const { provider, selectedProvider, audio } = params;
+    const { provider, selectedProvider, audio, signal } = params;
+    signal?.throwIfAborted();
 
     // Check if we should use Pluely API instead
     const usePluelyAPI = await shouldUsePluelyAPI();
     if (usePluelyAPI) {
-      return await fetchPluelySTT(audio);
+      return await fetchPluelySTT(audio, signal);
     }
 
     if (!provider) throw new Error("Provider not provided");
@@ -194,6 +198,7 @@ export async function fetchSTT(params: STTParams): Promise<string> {
         method: curlJson.method || "POST",
         headers: finalHeaders,
         body: curlJson.method === "GET" ? undefined : body,
+        signal,
       });
     } catch (e) {
       throw new Error(`Network error: ${e instanceof Error ? e.message : e}`);
