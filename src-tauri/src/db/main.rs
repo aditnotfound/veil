@@ -103,5 +103,11 @@ pub fn migrations() -> Vec<Migration> {
             sql: include_str!("migrations/call-answer-regeneration.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 17,
+            description: "record_call_answer_attempts",
+            sql: include_str!("migrations/call-answer-attempts.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }

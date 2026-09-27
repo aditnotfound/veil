@@ -31,6 +31,7 @@ import { getCallTurnTiming, saveCallTurnTiming, type CallTurnTiming } from "@/li
 import { saveCallTurnDecision } from "@/lib/database/call-decision.action";
 import { saveCallJevShadow, type StoredJevShadowStatus } from "@/lib/database/call-jev-shadow.action";
 import { saveCallAnswerCard, saveCallDeepAnswer } from "@/lib/database/call-answer-card.action";
+import { saveCallAnswerAttempt, type CallAnswerAttempt } from "@/lib/database/call-answer-attempt.action";
 import { appendCallSessionLedger } from "@/lib/database/call-session-ledger.action";
 import { deleteCallSessionPlanRevision, saveCallSessionPlan } from "@/lib/database/call-session-plan.action";
 import type { AnswerStreamEvent } from "@/lib/call/answer-card";
@@ -802,46 +803,61 @@ export function useSystemAudio() {
                 if (decision.action === "short_answer" && !manualAnswerInFlightRef.current) {
                   const paceMs = AUTO_RESPONSE_PACE_MS[autoResponsePace];
                   const job = callCoreRef.current.beginAnswer();
+                  const attemptStartedAt = Date.now();
+                  let firstChunkAt: number | null = null;
+                  let outcome: CallAnswerAttempt["outcome"] = "failed";
                   try {
-                    await delay(paceMs, job.signal);
-                  } catch {
-                    timing.status = "canceled";
-                    return;
-                  }
-                  if (!job.isCurrent()) {
-                    timing.status = "canceled";
-                    return;
-                  }
-                  const answerStartedPerf = performance.now();
-                  timing.waitBeforeAnswerMs = answerStartedPerf - audioReadyPerf - timing.audioToSttMs;
+                    try {
+                      await delay(paceMs, job.signal);
+                    } catch {
+                      timing.status = "canceled";
+                      outcome = "canceled";
+                      return;
+                    }
+                    if (!job.isCurrent()) {
+                      timing.status = "canceled";
+                      outcome = "canceled";
+                      return;
+                    }
+                    const answerStartedPerf = performance.now();
+                    timing.waitBeforeAnswerMs = answerStartedPerf - audioReadyPerf - timing.audioToSttMs;
 
-                  const effectiveSystemPrompt = useSystemPrompt
-                    ? systemPrompt || DEFAULT_SYSTEM_PROMPT
-                    : contextContent || DEFAULT_SYSTEM_PROMPT;
+                    const effectiveSystemPrompt = useSystemPrompt
+                      ? systemPrompt || DEFAULT_SYSTEM_PROMPT
+                      : contextContent || DEFAULT_SYSTEM_PROMPT;
 
-                  const previousMessages = callCoreRef.current.historyBefore(utterance.id);
+                    const previousMessages = callCoreRef.current.historyBefore(utterance.id);
 
-                  const answered = await processWithAI(
-                    transcription.trim(),
-                    callCardPrompt(effectiveSystemPrompt),
-                    previousMessages,
-                    job,
-                    (firstChunkPerf) => {
-                      if (!timing) return;
-                      timing.answerToFirstChunkMs = firstChunkPerf - answerStartedPerf;
-                      timing.audioToFirstChunkMs = firstChunkPerf - audioReadyPerf;
-                    },
-                    utterance.id
-                  );
-                  timing.answerTotalMs = performance.now() - answerStartedPerf;
-                  if (answered && job.isCurrent()) {
-                    lastAnsweredRef.current = {
-                      normalizedText: normalizeTurn(utterance.text),
-                      endedAt: utterance.endedAt,
-                    };
-                  }
-                  if (timing.status !== "storage_error") {
-                    timing.status = !job.isCurrent() ? "canceled" : answered ? "answered" : "answer_error";
+                    const answered = await processWithAI(
+                      transcription.trim(),
+                      callCardPrompt(effectiveSystemPrompt),
+                      previousMessages,
+                      job,
+                      (firstChunkPerf) => {
+                        firstChunkAt = Date.now();
+                        if (!timing) return;
+                        timing.answerToFirstChunkMs = firstChunkPerf - answerStartedPerf;
+                        timing.audioToFirstChunkMs = firstChunkPerf - audioReadyPerf;
+                      },
+                      utterance.id
+                    );
+                    timing.answerTotalMs = performance.now() - answerStartedPerf;
+                    outcome = !job.isCurrent() ? "canceled" : answered ? "answered" : "failed";
+                    if (answered && job.isCurrent()) {
+                      lastAnsweredRef.current = {
+                        normalizedText: normalizeTurn(utterance.text),
+                        endedAt: utterance.endedAt,
+                      };
+                    }
+                    if (timing.status !== "storage_error") {
+                      timing.status = !job.isCurrent() ? "canceled" : answered ? "answered" : "answer_error";
+                    }
+                  } finally {
+                    await saveCallAnswerAttempt({
+                      turnId: utterance.id, sessionId, trigger: "automatic",
+                      startedAt: attemptStartedAt, firstChunkAt,
+                      completedAt: Date.now(), outcome,
+                    }).catch((error) => console.error("Failed to save automatic answer attempt:", error));
                   }
                 }
               } else {
@@ -1302,6 +1318,8 @@ export function useSystemAudio() {
     const job = callCoreRef.current.beginAnswer();
     const answerStartedAt = Date.now();
     const answerStartedPerf = performance.now();
+    let firstChunkAt: number | null = null;
+    let outcome: CallAnswerAttempt["outcome"] = "failed";
     const audioReadyAt = transcribedTiming?.audioReadyAt ?? turn.endedAt;
     const waitBeforeAnswerMs = Math.max(
       0, answerStartedAt - audioReadyAt - (transcribedTiming?.audioToSttMs ?? 0)
@@ -1325,6 +1343,7 @@ export function useSystemAudio() {
         callCoreRef.current.historyBefore(turn.id),
         job,
         (firstChunkPerf) => {
+          firstChunkAt = Date.now();
           timing.answerToFirstChunkMs = firstChunkPerf - answerStartedPerf;
           timing.audioToFirstChunkMs = answerStartedAt - audioReadyAt + timing.answerToFirstChunkMs;
         },
@@ -1332,6 +1351,7 @@ export function useSystemAudio() {
       );
       timing.answerTotalMs = performance.now() - answerStartedPerf;
       timing.status = !job.isCurrent() ? "canceled" : answered ? "answered" : "answer_error";
+      outcome = !job.isCurrent() ? "canceled" : answered ? "answered" : "failed";
       if (answered && job.isCurrent()) {
         lastAnsweredRef.current = {
           normalizedText: normalizeTurn(turn.text),
@@ -1339,9 +1359,16 @@ export function useSystemAudio() {
         };
       }
     } finally {
-      await saveCallTurnTiming(timing).catch((error) =>
-        console.error("Failed to save manual answer timing:", error)
-      );
+      await Promise.all([
+        saveCallTurnTiming(timing).catch((error) =>
+          console.error("Failed to save manual answer timing:", error)
+        ),
+        saveCallAnswerAttempt({
+          turnId: turn.id, sessionId: turn.sessionId, trigger: "answer_now",
+          startedAt: answerStartedAt, firstChunkAt,
+          completedAt: Date.now(), outcome,
+        }).catch((error) => console.error("Failed to save manual answer attempt:", error)),
+      ]);
       manualAnswerInFlightRef.current = false;
     }
   }, [latestSystemTurn, useSystemPrompt, systemPrompt, contextContent, processWithAI, resizeWindow]);

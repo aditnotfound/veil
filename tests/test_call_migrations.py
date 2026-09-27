@@ -8,6 +8,31 @@ MIGRATIONS = Path(__file__).resolve().parents[1] / "src-tauri/src/db/migrations"
 
 
 class CallMigrationTests(unittest.TestCase):
+    def test_answer_attempt_upgrade_keeps_retries_and_prunes_with_session(self):
+        with closing(sqlite3.connect(":memory:")) as db:
+            db.executescript((MIGRATIONS / "call-sessions.sql").read_text())
+            db.execute("INSERT INTO call_sessions(id,started_at) VALUES ('call',1)")
+            db.execute("INSERT INTO call_utterances VALUES (?,?,?,?,?,?,?)", ("turn", "call", "system", 1, 2, 3, "question"))
+            db.executescript((MIGRATIONS / "call-answer-attempts.sql").read_text())
+            db.executemany(
+                "INSERT INTO call_answer_attempts(turn_id,session_id,initiator,started_at,first_chunk_at,completed_at,outcome) VALUES (?,?,?,?,?,?,?)",
+                [
+                    ("turn", "call", "automatic", 4, None, 6, "failed"),
+                    ("turn", "call", "answer_now", 10, 12, 13, "answered"),
+                ],
+            )
+            self.assertEqual(
+                db.execute("SELECT initiator,outcome FROM call_answer_attempts ORDER BY id").fetchall(),
+                [("automatic", "failed"), ("answer_now", "answered")],
+            )
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute(
+                    "INSERT INTO call_answer_attempts(turn_id,session_id,initiator,started_at,first_chunk_at,completed_at,outcome) VALUES (?,?,?,?,?,?,?)",
+                    ("turn", "call", "unknown", 14, None, 15, "answered"),
+                )
+            db.execute("DELETE FROM call_sessions WHERE id='call'")
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM call_answer_attempts").fetchone()[0], 0)
+
     def test_regeneration_upgrade_splits_existing_stale_marker_by_answer_tier(self):
         with closing(sqlite3.connect(":memory:")) as db:
             for filename in (
