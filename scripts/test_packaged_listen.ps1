@@ -7,24 +7,33 @@ pwsh scripts/test_packaged_listen.ps1 -ProcessId 1234 -Question 'What is nine pl
 pwsh scripts/test_packaged_listen.ps1 -ProcessId 1234 -Question 'What is nine plus twelve?' -TranscriptPattern 'What is (9|nine) plus (12|twelve)' -AnswerPattern '21' -AnswerNow
 .EXAMPLE
 pwsh scripts/test_packaged_listen.ps1 -ProcessId 1234 -Question 'I will send the file tomorrow.' -TranscriptPattern 'send the file tomorrow' -ExpectSilence
+.EXAMPLE
+pwsh scripts/test_packaged_listen.ps1 -ProcessId 1234 -Preamble 'You are choosing between a job and graduate study.' -PreamblePattern 'job and graduate' -Question 'You ask your teacher for guidance.' -TranscriptPattern 'ask your teacher' -ExpectSilence -JevShadow
 
 The transcript and answer arguments are regular expressions. AnswerPattern is
 matched anywhere in the active answer card, so a correct explanatory answer
 may contain the expected value alongside other text.
+JEV comparison stays shadow-only; inspect call_jev_shadow for its saved choice.
 #>
 param(
   [Parameter(Mandatory = $true)][int]$ProcessId,
   [string]$Question = 'What is nine plus twelve?',
   [string]$TranscriptPattern = 'What is (9|nine) plus (12|twelve)',
   [string]$AnswerPattern = '21',
+  [string]$Preamble = '',
+  [string]$PreamblePattern = '',
   [ValidateRange(5, 90)][int]$TimeoutSeconds = 30,
   [switch]$AnswerNow,
   [switch]$ExpectSilence,
+  [switch]$JevShadow,
   [switch]$Trace
 )
 
 if ($AnswerNow -and $ExpectSilence) {
   throw 'AnswerNow and ExpectSilence cannot be used together.'
+}
+if ($Preamble -and -not $PreamblePattern) {
+  throw 'PreamblePattern is required when Preamble is supplied.'
 }
 
 $ErrorActionPreference = 'Stop'
@@ -163,6 +172,19 @@ try {
     }
   }
   if ($wasMicOn) { Invoke-Button $window 'Mic On' }
+  if ($JevShadow) {
+    if ($null -eq (Find-Button $window 'JEV comparison (experimental)')) {
+      Invoke-Button $window 'Settings'
+    }
+    $jev = Find-Button $window 'JEV comparison (experimental)'
+    if ($null -eq $jev -or -not $jev.Current.IsEnabled) {
+      throw 'JEV comparison requires a configured local TypeSafe key.'
+    }
+    $toggle = $jev.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+    if ($toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::Off) {
+      $toggle.Toggle()
+    }
+  }
   if ($AnswerNow) {
     if ($null -eq (Find-Button $window 'Off')) { Invoke-Button $window 'Settings' }
     $previousAutoMode = Get-SelectedAutoMode $window
@@ -171,6 +193,20 @@ try {
 
   $voice = New-Object -ComObject SAPI.SpVoice
   $voice.Rate = 1
+  if ($Preamble) {
+    $null = $voice.Speak($Preamble)
+    $preambleDeadline = (Now-Milliseconds) + 25000
+    $preambleDetected = $false
+    while ((Now-Milliseconds) -lt $preambleDeadline) {
+      if ((Get-DocumentText $window) -match $PreamblePattern) {
+        $preambleDetected = $true
+        break
+      }
+      Start-Sleep -Milliseconds 150
+    }
+    if (-not $preambleDetected) { throw 'Synthetic preamble was not transcribed.' }
+    Start-Sleep -Seconds 1
+  }
   $baselineAnswerPrompt = Get-AnswerPrompt (Get-DocumentText $window)
   $null = $voice.Speak($Question)
   $speechEndedAt = Now-Milliseconds
