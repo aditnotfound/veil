@@ -69,7 +69,7 @@ export const Providers = ({
           onChange={(value) => {
             onSetSelectedAIProvider({
               provider: value,
-              variables: value === "openai" ? { model: "gpt-6-sol" } : {},
+              variables: value === "openai" ? { model: "gpt-6-luna" } : {},
             });
           }}
         />
