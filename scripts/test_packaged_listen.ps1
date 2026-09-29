@@ -30,6 +30,7 @@ param(
   [switch]$JevAssist,
   [switch]$FastOpenAI,
   [switch]$LeaveFastOpenAIOn,
+  [switch]$GoDeeper,
   [switch]$Trace
 )
 
@@ -41,6 +42,9 @@ if ($JevAssist -and -not $JevShadow) {
 }
 if ($LeaveFastOpenAIOn -and -not $FastOpenAI) {
   throw 'LeaveFastOpenAIOn requires FastOpenAI.'
+}
+if ($GoDeeper -and $ExpectSilence) {
+  throw 'GoDeeper and ExpectSilence cannot be used together.'
 }
 if ($Preamble -and -not $PreamblePattern) {
   throw 'PreamblePattern is required when Preamble is supplied.'
@@ -157,9 +161,12 @@ $result = [ordered]@{
   ManualFallbackClicked = $false
   AnswerStarted = $false
   AnswerVisible = $false
+  DeepTriggered = $false
+  DeepCompleted = $false
   TranscriptVisibleMs = $null
   FirstAnswerVisibleMs = $null
   TotalAnswerMs = $null
+  DeepCompletedMs = $null
   ProviderError = $null
 }
 
@@ -275,10 +282,24 @@ try {
       $result.AnswerVisible = $true
       $result.FirstAnswerVisibleMs = $now - $speechEndedAt
     }
-    if ($result.AnswerVisible -and $display -match 'Go deeper') {
+    if ($result.AnswerVisible -and $display -match 'Go deeper' -and $null -eq $result.TotalAnswerMs) {
       $result.TotalAnswerMs = $now - $speechEndedAt
-      # Let the short stream finish before collapsing capture, which cancels in-flight work.
-      Start-Sleep -Milliseconds 1500
+      if (-not $GoDeeper) {
+        # Let the short stream finish before collapsing capture, which cancels in-flight work.
+        Start-Sleep -Milliseconds 1500
+        break
+      }
+    }
+    if ($GoDeeper -and $result.AnswerVisible -and -not $result.DeepTriggered) {
+      $deepButton = Find-Button $window 'Go deeper'
+      if ($null -ne $deepButton -and $deepButton.Current.IsEnabled) {
+        $deepButton.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+        $result.DeepTriggered = $true
+      }
+    }
+    if ($result.DeepTriggered -and $display -match 'Deep draft\s*[·:]\s*not independently checked') {
+      $result.DeepCompleted = $true
+      $result.DeepCompletedMs = $now - $speechEndedAt
       break
     }
     if ($display -match '(?s)\bError\s+([^\r\n]+)') {
@@ -333,4 +354,5 @@ if ($ExpectSilence) {
 }
 if (-not $result.TranscriptDetected -or -not $result.AnswerVisible -or
     $null -eq $result.TotalAnswerMs -or $result.ProviderError -or
-    ($AnswerNow -and -not $result.ManualFallbackClicked)) { exit 1 }
+    ($AnswerNow -and -not $result.ManualFallbackClicked) -or
+    ($GoDeeper -and -not $result.DeepCompleted)) { exit 1 }
