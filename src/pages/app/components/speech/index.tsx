@@ -79,10 +79,14 @@ export const SystemAudio = (props: useSystemAudioType) => {
     setAutoResponseMode,
     autoResponsePace,
     setAutoResponsePace,
+    fastOpenAIAnswers,
+    setFastOpenAIAnswers,
     jevShadowEnabled,
     jevShadowAvailable,
     jevShadowStatus,
     setJevShadowEnabled,
+    jevLiveAssistEnabled,
+    setJevLiveAssistEnabled,
     sessionPlannerEnabled,
     sessionPlannerAvailable,
     sessionPlannerStatus,
@@ -478,10 +482,14 @@ export const SystemAudio = (props: useSystemAudioType) => {
                       setAutoResponseMode={setAutoResponseMode}
                       autoResponsePace={autoResponsePace}
                       setAutoResponsePace={setAutoResponsePace}
+                      fastOpenAIAnswers={fastOpenAIAnswers}
+                      setFastOpenAIAnswers={setFastOpenAIAnswers}
                       jevShadowEnabled={jevShadowEnabled}
                       jevShadowAvailable={jevShadowAvailable}
                       jevShadowStatus={jevShadowStatus}
                       setJevShadowEnabled={setJevShadowEnabled}
+                      jevLiveAssistEnabled={jevLiveAssistEnabled}
+                      setJevLiveAssistEnabled={setJevLiveAssistEnabled}
                       sessionPlannerEnabled={sessionPlannerEnabled}
                       sessionPlannerAvailable={sessionPlannerAvailable}
                       sessionPlannerStatus={sessionPlannerStatus}

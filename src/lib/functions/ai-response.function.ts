@@ -209,6 +209,7 @@ export async function* fetchAIResponse(params: {
   knowledgeMode?: "local" | "none";
   onKnowledgeError?: () => void;
   responseProfile?: "default" | "live-short" | "deep";
+  fastOpenAIAnswers?: boolean;
 }): AsyncIterable<string> {
   try {
     const {
@@ -223,6 +224,7 @@ export async function* fetchAIResponse(params: {
       knowledgeMode,
       onKnowledgeError,
       responseProfile,
+      fastOpenAIAnswers,
     } = params;
 
     // Check if already aborted
@@ -331,7 +333,7 @@ export async function* fetchAIResponse(params: {
 
     bodyObj = deepVariableReplacer(bodyObj, allVariables);
     if (bodyObj && typeof bodyObj === "object" && !Array.isArray(bodyObj)) {
-      applyLiveAnswerProfile(bodyObj, provider.id ?? "", responseProfile ?? "default");
+      applyLiveAnswerProfile(bodyObj, provider.id ?? "", responseProfile ?? "default", fastOpenAIAnswers);
     }
     let url = deepVariableReplacer(curlJson.url || "", allVariables);
 

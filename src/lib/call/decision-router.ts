@@ -1,13 +1,27 @@
 import type { FinalUtterance } from "./session-core";
 
 export type AutoResponseMode = "off" | "on_question" | "after_pause";
-export const ROUTER_VERSION = "deterministic-v2";
+export const ROUTER_VERSION = "deterministic-v3-jev-assist";
 export type DecisionReason =
   | "mode_off" | "mic_source" | "short_or_noisy" | "social_or_housekeeping"
-  | "repeat_answered" | "not_a_request" | "superseded" | "explicit_question" | "direct_request";
+  | "repeat_answered" | "not_a_request" | "superseded" | "explicit_question" | "direct_request" | "jev_assist";
 export type CallDecision =
   | { action: "silence"; reason: DecisionReason; utteranceId: string }
-  | { action: "short_answer"; reason: "explicit_question" | "direct_request"; utteranceId: string };
+  | { action: "short_answer"; reason: "explicit_question" | "direct_request" | "jev_assist"; utteranceId: string };
+
+/** JEV can rescue only ambiguous turns; clear questions never wait for it. */
+export function applyJevAssist(
+  decision: CallDecision,
+  result: { status: string; choice: string | null; confidence: number | null } | null,
+  stillCurrent: boolean
+): CallDecision {
+  if (decision.action !== "silence" || decision.reason !== "not_a_request" ||
+      !stillCurrent || result?.status !== "valid" ||
+      result.choice !== "short_answer" || (result.confidence ?? 0) < 0.85) {
+    return decision;
+  }
+  return { action: "short_answer", reason: "jev_assist", utteranceId: decision.utteranceId };
+}
 
 /** Only a finalized answer-worthy turn should supersede an in-flight answer. */
 export function shouldCancelAnswerForDecision(decision: CallDecision): boolean {
@@ -24,6 +38,9 @@ const CLEAR_QUESTION_AFTER_LEAD_IN = /^(?:(?:who|what|when|where|why|how|which|w
 const DIRECT_REQUEST = /^(tell me(?: about)?|explain|describe|walk me through|compare|summarize|help me|solve|show me|give me|outline)\b/i;
 const SOCIAL_OR_HOUSEKEEPING = /^(?:hi|hello|hey|thanks?|thank you|okay|ok|right|yeah|yep|nope|um|uh|hmm|can you hear me|are you there|how are you|do you have any questions|any questions|what time is it|what's the time)[?.!,\s]*$/i;
 const DISCOURSE_LEAD_IN = /^(?:well|so|okay|ok|right|but|and|uh|um)\b[,;:]?\s+/i;
+const CONTEXT_LEAD_IN = /^(?:in|for|with|regarding)\s+[^,]{2,60},\s*/i;
+// ASR sometimes writes spoken "why" as the letter y in a context-framed question.
+const ASR_WHY_QUESTION = /^y\s+(?:is|are|was|were|do|does|did|can|could|would|should|will)\b.{12,200}\b(?:risky|unsafe|problematic|bad|wrong|different|important|useful|necessary|needed|faster|slower|better|worse)[.!?]?\s*$/i;
 const MAX_TURN_CHARS = 2000;
 const REPEAT_WINDOW_MS = 30_000;
 
@@ -34,7 +51,7 @@ export function normalizeTurn(text: string): string {
 function withoutDiscourseLeadIn(text: string): string {
   let remaining = text.trim();
   for (let i = 0; i < 2; i++) {
-    const leadIn = remaining.match(DISCOURSE_LEAD_IN);
+    const leadIn = remaining.match(DISCOURSE_LEAD_IN) ?? remaining.match(CONTEXT_LEAD_IN);
     if (!leadIn) break;
     remaining = remaining.slice(leadIn[0].length).trimStart();
   }
@@ -45,9 +62,11 @@ export function looksLikeQuestion(text: string): boolean {
   const trimmed = text.trim();
   const withoutLeadIn = withoutDiscourseLeadIn(trimmed);
   if (withoutLeadIn.includes("?")) return true;
+  if (CONTEXT_LEAD_IN.test(trimmed) && ASR_WHY_QUESTION.test(withoutLeadIn)) return true;
   return withoutLeadIn === trimmed
     ? QUESTION_START.test(withoutLeadIn)
-    : CLEAR_QUESTION_AFTER_LEAD_IN.test(withoutLeadIn);
+    : CLEAR_QUESTION_AFTER_LEAD_IN.test(withoutLeadIn) ||
+      (CONTEXT_LEAD_IN.test(trimmed) && QUESTION_START.test(withoutLeadIn));
 }
 
 export function callCardPrompt(basePrompt: string): string {

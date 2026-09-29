@@ -1,10 +1,30 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, deepCallPrompt, shouldCancelAnswerForDecision } from "../src/lib/call/decision-router.ts";
+import { applyJevAssist, routeCallTurn, routeSequencedSystemTurn, normalizeTurn, deepCallPrompt, shouldCancelAnswerForDecision } from "../src/lib/call/decision-router.ts";
 
 const turn = (text, source = "system", endedAt = 10_000) => ({
   id: `call:${source}:1`, sessionId: "call", source, sequence: 1,
   startedAt: endedAt - 700, endedAt, text,
+});
+
+test("JEV rescues only current ambiguous turns with a confident positive decision", () => {
+  const ambiguous = routeCallTurn(turn("Perhaps you could walk me through the cache failure"), "after_pause");
+  assert.equal(ambiguous.reason, "not_a_request");
+  const positive = { status: "valid", choice: "short_answer", confidence: 0.9 };
+  assert.deepEqual(applyJevAssist(ambiguous, positive, true), {
+    action: "short_answer", reason: "jev_assist", utteranceId: ambiguous.utteranceId,
+  });
+  for (const result of [
+    { ...positive, confidence: 0.84 },
+    { ...positive, confidence: null },
+    { ...positive, choice: "silence" },
+    { ...positive, status: "timeout" },
+  ]) assert.deepEqual(applyJevAssist(ambiguous, result, true), ambiguous);
+  assert.deepEqual(applyJevAssist(ambiguous, positive, false), ambiguous);
+  for (const text of ["Hello everyone", "What is a cache miss?"]) {
+    const decision = routeCallTurn(turn(text), "after_pause");
+    assert.deepEqual(applyJevAssist(decision, positive, true), decision);
+  }
 });
 
 test("conservative router stays silent for social speech and ordinary statements", () => {
@@ -47,6 +67,19 @@ test("punctuation-free questions survive short conversational lead-ins", () => {
   ]) {
     assert.equal(routeCallTurn(turn(text), "after_pause").action, "silence", text);
   }
+});
+
+test("context phrases before a spoken question do not hide the question", () => {
+  for (const text of [
+    "In Python, why is a mutable default list risky",
+    "In Python, y is a mutable list as a default argument risky.",
+    "For this algorithm, how can we reduce the memory use",
+    "Regarding the cache, what happens on a miss",
+  ]) {
+    assert.equal(routeCallTurn(turn(text), "on_question").reason, "explicit_question", text);
+  }
+  assert.equal(routeCallTurn(turn("In Python, y is a mutable list"), "on_question").reason, "not_a_request");
+  assert.equal(routeCallTurn(turn("In Python, y is an important variable"), "on_question").reason, "not_a_request");
 });
 
 test("questions and requests mode handles direct tasks without replying to every pause", () => {

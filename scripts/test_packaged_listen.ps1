@@ -13,7 +13,8 @@ pwsh scripts/test_packaged_listen.ps1 -ProcessId 1234 -Preamble 'You are choosin
 The transcript and answer arguments are regular expressions. AnswerPattern is
 matched anywhere in the active answer card, so a correct explanatory answer
 may contain the expected value alongside other text.
-JEV comparison stays shadow-only; inspect call_jev_shadow for its saved choice.
+JEV comparison stays shadow-only unless -JevAssist is also passed.
+Inspect call_jev_shadow for the saved choice.
 #>
 param(
   [Parameter(Mandatory = $true)][int]$ProcessId,
@@ -26,11 +27,20 @@ param(
   [switch]$AnswerNow,
   [switch]$ExpectSilence,
   [switch]$JevShadow,
+  [switch]$JevAssist,
+  [switch]$FastOpenAI,
+  [switch]$LeaveFastOpenAIOn,
   [switch]$Trace
 )
 
 if ($AnswerNow -and $ExpectSilence) {
   throw 'AnswerNow and ExpectSilence cannot be used together.'
+}
+if ($JevAssist -and -not $JevShadow) {
+  throw 'JevAssist requires JevShadow.'
+}
+if ($LeaveFastOpenAIOn -and -not $FastOpenAI) {
+  throw 'LeaveFastOpenAIOn requires FastOpenAI.'
 }
 if ($Preamble -and -not $PreamblePattern) {
   throw 'PreamblePattern is required when Preamble is supplied.'
@@ -139,6 +149,8 @@ $opened = $false
 $wasManual = $false
 $wasMicOn = $false
 $previousAutoMode = $null
+$fastWasOn = $false
+$assistWasOn = $false
 $result = [ordered]@{
   Question = $Question
   TranscriptDetected = $false
@@ -172,6 +184,16 @@ try {
     }
   }
   if ($wasMicOn) { Invoke-Button $window 'Mic On' }
+  if ($FastOpenAI) {
+    if ($null -eq (Find-Button $window 'Fast OpenAI call cards')) {
+      Invoke-Button $window 'Settings'
+    }
+    $fastToggle = Find-Button $window 'Fast OpenAI call cards'
+    if ($null -eq $fastToggle) { throw 'Fast OpenAI call-card switch was not found.' }
+    $toggle = $fastToggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+    $fastWasOn = $toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On
+    if (-not $fastWasOn) { $toggle.Toggle() }
+  }
   if ($JevShadow) {
     if ($null -eq (Find-Button $window 'JEV comparison (experimental)')) {
       Invoke-Button $window 'Settings'
@@ -183,6 +205,15 @@ try {
     $toggle = $jev.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
     if ($toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::Off) {
       $toggle.Toggle()
+    }
+    if ($JevAssist) {
+      $assist = Find-Button $window 'Let JEV rescue unclear questions'
+      if ($null -eq $assist -or -not $assist.Current.IsEnabled) {
+        throw 'JEV live-assist switch was not available.'
+      }
+      $assistToggle = $assist.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+      $assistWasOn = $assistToggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On
+      if (-not $assistWasOn) { $assistToggle.Toggle() }
     }
   }
   if ($AnswerNow) {
@@ -246,6 +277,8 @@ try {
     }
     if ($result.AnswerVisible -and $display -match 'Go deeper') {
       $result.TotalAnswerMs = $now - $speechEndedAt
+      # Let the short stream finish before collapsing capture, which cancels in-flight work.
+      Start-Sleep -Milliseconds 1500
       break
     }
     if ($display -match '(?s)\bError\s+([^\r\n]+)') {
@@ -256,6 +289,24 @@ try {
 } finally {
   if ($opened) {
     try {
+      if ($JevAssist -and -not $assistWasOn) {
+        $assist = Find-Button $window 'Let JEV rescue unclear questions'
+        if ($null -ne $assist) {
+          $assistToggle = $assist.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+          if ($assistToggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On) {
+            $assistToggle.Toggle()
+          }
+        }
+      }
+      if ($FastOpenAI -and -not $fastWasOn -and -not $LeaveFastOpenAIOn) {
+        $fastToggle = Find-Button $window 'Fast OpenAI call cards'
+        if ($null -ne $fastToggle) {
+          $toggle = $fastToggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+          if ($toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On) {
+            $toggle.Toggle()
+          }
+        }
+      }
       if ($null -ne $previousAutoMode -and $previousAutoMode -ne 'Off') {
         Invoke-Button $window $previousAutoMode
       }
