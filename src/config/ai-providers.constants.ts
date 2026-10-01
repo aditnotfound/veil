@@ -1,5 +1,13 @@
 export const AI_PROVIDERS = [
   {
+    id: "chatgpt-plan",
+    curl: `curl https://api.openai.com/v1/responses \\
+  -H "Content-Type: application/json" \\
+  -d '{"model":"{{MODEL}}","input":"{{TEXT}}"}'`,
+    responseContentPath: "",
+    streaming: true,
+  },
+  {
     id: "openai",
     curl: `curl https://api.openai.com/v1/chat/completions \\
   -H "Content-Type: application/json" \\

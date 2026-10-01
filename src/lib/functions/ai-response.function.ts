@@ -194,6 +194,62 @@ async function* fetchPluelyAIResponse(params: {
   }
 }
 
+async function* fetchChatGPTPlanResponse(params: {
+  systemPrompt: string;
+  userMessage: string;
+  history: Message[];
+  historyOrder?: "chronological" | "newest-first";
+  imagesBase64: string[];
+  model: string;
+  signal?: AbortSignal;
+}): AsyncIterable<string> {
+  const { systemPrompt, userMessage, history, historyOrder, imagesBase64, model, signal } = params;
+  const requestId = crypto.randomUUID();
+  const queue: string[] = [];
+  const ordered = historyOrder === "chronological" ? history : [...history].reverse();
+  const input: Array<{
+    role: "user" | "assistant";
+    content: string | Array<{ type: string; text?: string; image_url?: string }>;
+  }> = ordered.map((message) => ({
+    role: message.role === "assistant" ? "assistant" : "user",
+    content: typeof message.content === "string"
+      ? message.content
+      : message.content.map((part) => part.text || "").filter(Boolean).join("\n"),
+  }));
+  input.push({
+    role: "user",
+    content: imagesBase64.length ? [
+      { type: "input_text", text: userMessage },
+      ...imagesBase64.map((image) => ({
+        type: "input_image",
+        image_url: image.startsWith("data:") ? image : `data:image/png;base64,${image}`,
+      })),
+    ] : userMessage,
+  });
+  const unlisten = await listen<{ requestId: string; text: string }>("chatgpt_plan_chunk", (event) => {
+    if (event.payload.requestId === requestId) queue.push(event.payload.text);
+  });
+  let complete = false;
+  let failure: unknown;
+  const request = invoke("chatgpt_plan_response", {
+    requestId, model, instructions: systemPrompt, input,
+  }).then(() => { complete = true; }, (error) => { failure = error; complete = true; });
+  const cancel = () => { void invoke("chatgpt_plan_cancel", { requestId }); };
+  signal?.addEventListener("abort", cancel, { once: true });
+  try {
+    while (!complete || queue.length) {
+      while (queue.length) yield queue.shift()!;
+      if (!complete) await new Promise((resolve) => setTimeout(resolve, 25));
+      if (signal?.aborted) return;
+    }
+    if (failure) throw new Error(String(failure));
+  } finally {
+    signal?.removeEventListener("abort", cancel);
+    unlisten();
+    void request;
+  }
+}
+
 export async function* fetchAIResponse(params: {
   provider: TYPE_PROVIDER | undefined;
   selectedProvider: {
@@ -248,6 +304,19 @@ export async function* fetchAIResponse(params: {
     });
 
     if (signal?.aborted) return;
+
+    if (selectedProvider?.provider === "chatgpt-plan") {
+      yield* fetchChatGPTPlanResponse({
+        systemPrompt: enhancedSystemPrompt,
+        userMessage,
+        history: attachPersonalEvidence(history, personalContext, historyOrder, false),
+        historyOrder,
+        imagesBase64,
+        model: selectedProvider.variables?.model || "gpt-6.1-sol",
+        signal,
+      });
+      return;
+    }
 
     // Check if we should use Pluely API instead
     const usePluelyAPI = await shouldUsePluelyAPI();

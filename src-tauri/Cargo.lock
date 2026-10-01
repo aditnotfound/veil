@@ -4164,6 +4164,7 @@ dependencies = [
  "libpulse-simple-binding",
  "once_cell",
  "reqwest 0.12.23",
+ "ring",
  "ringbuf",
  "serde",
  "serde_json",

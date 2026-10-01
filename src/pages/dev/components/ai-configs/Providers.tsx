@@ -4,6 +4,9 @@ import curl2Json, { ResultJSON } from "@bany/curl-to-json";
 import { useApp } from "@/contexts";
 import { KeyIcon, TrashIcon } from "lucide-react";
 import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+
+type ChatGPTPlanStatus = { connected: boolean; email?: string | null; plan_enabled: boolean };
 
 export const Providers = ({
   allAiProviders,
@@ -18,6 +21,32 @@ export const Providers = ({
   const [jevKeyDraft, setJevKeyDraft] = useState("");
   const [jevKeySaving, setJevKeySaving] = useState(false);
   const [jevKeyStatus, setJevKeyStatus] = useState("");
+  const [chatgptStatus, setChatgptStatus] = useState<ChatGPTPlanStatus | null>(null);
+  const [chatgptModels, setChatgptModels] = useState<string[]>([]);
+  const [chatgptBusy, setChatgptBusy] = useState(false);
+  const [chatgptError, setChatgptError] = useState("");
+
+  useEffect(() => {
+    if (selectedAIProvider?.provider !== "chatgpt-plan") return;
+    void invoke<ChatGPTPlanStatus>("chatgpt_plan_status")
+      .then(setChatgptStatus, () => setChatgptError("Could not read ChatGPT connection."));
+  }, [selectedAIProvider?.provider]);
+
+  useEffect(() => {
+    if (!chatgptStatus?.plan_enabled || selectedAIProvider?.provider !== "chatgpt-plan") return;
+    void invoke<string[]>("chatgpt_plan_models")
+      .then((models) => {
+        setChatgptModels(models);
+        if (models.length && !models.includes(selectedAIProvider.variables?.model || "")) {
+          const preferred = models.find((model) => model === "gpt-6.1-sol")
+            || models.find((model) => model === "gpt-6-sol") || models[0];
+          onSetSelectedAIProvider({
+            ...selectedAIProvider,
+            variables: { ...selectedAIProvider.variables, model: preferred },
+          });
+        }
+      }, () => setChatgptError("Could not list models for this ChatGPT account."));
+  }, [chatgptStatus?.plan_enabled, selectedAIProvider?.provider]);
 
   useEffect(() => {
     if (selectedAIProvider?.provider) {
@@ -69,7 +98,8 @@ export const Providers = ({
           onChange={(value) => {
             onSetSelectedAIProvider({
               provider: value,
-              variables: value === "openai" ? { model: "gpt-6-luna" } : {},
+              variables: value === "openai" ? { model: "gpt-6-luna" }
+                : value === "chatgpt-plan" ? { model: "gpt-6.1-sol" } : {},
             });
           }}
         />
@@ -249,10 +279,66 @@ export const Providers = ({
         )}
       </div>
 
+      {selectedAIProvider?.provider === "chatgpt-plan" && (
+        <div className="space-y-3 rounded-lg border border-border/50 p-3">
+          <Header title="ChatGPT plan for answers"
+            description="Connect an eligible Plus or Pro account. Answer requests use your ChatGPT plan allowance; transcription and embeddings still need their own configured provider." />
+          <p className="text-xs text-muted-foreground">
+            {chatgptStatus?.connected
+              ? `Connected: ${chatgptStatus.email || "ChatGPT account"}. Plan usage ${chatgptStatus.plan_enabled ? "enabled" : "not granted"}.`
+              : "No ChatGPT account connected."}
+          </p>
+          <div className="flex gap-2">
+            <Button type="button" disabled={chatgptBusy} onClick={async () => {
+              setChatgptBusy(true);
+              setChatgptError("");
+              try {
+                const next = await invoke<ChatGPTPlanStatus>("chatgpt_plan_sign_in");
+                setChatgptStatus(next);
+              } catch (error) {
+                setChatgptError(String(error));
+              } finally {
+                setChatgptBusy(false);
+              }
+            }}>Continue with ChatGPT</Button>
+            {chatgptStatus?.connected && <Button type="button" variant="destructive"
+              disabled={chatgptBusy} onClick={async () => {
+                setChatgptBusy(true);
+                setChatgptError("");
+                try {
+                  await invoke("chatgpt_plan_sign_out");
+                  setChatgptStatus({ connected: false, plan_enabled: false });
+                  setChatgptModels([]);
+                } catch (error) { setChatgptError(String(error)); }
+                finally { setChatgptBusy(false); }
+              }}>Sign out locally</Button>}
+          </div>
+          {chatgptStatus?.connected && <p className="text-xs text-muted-foreground">
+            Manage or revoke Veil's plan access in ChatGPT Settings → Usage.
+          </p>}
+          {chatgptBusy && <p role="status" className="text-xs text-muted-foreground">Complete sign-in in your browser, then return to Veil.</p>}
+          {chatgptModels.length > 0 && <div className="space-y-1">
+            <label htmlFor="chatgpt-plan-model" className="text-xs font-medium">Answer model</label>
+            <select id="chatgpt-plan-model" className="w-full rounded border border-input bg-background p-2 text-sm"
+              value={selectedAIProvider.variables?.model || ""}
+              onChange={(event) => onSetSelectedAIProvider({
+                ...selectedAIProvider,
+                variables: { ...selectedAIProvider.variables, model: event.target.value },
+              })}>
+              {!chatgptModels.includes(selectedAIProvider.variables?.model || "") &&
+                <option value={selectedAIProvider.variables?.model || ""}>Choose an available model</option>}
+              {chatgptModels.map((model) => <option key={model} value={model}>{model}</option>)}
+            </select>
+          </div>}
+          {chatgptError && <p role="alert" className="text-xs text-red-500">{chatgptError}</p>}
+        </div>
+      )}
+
       <div className="space-y-4 mt-2">
         {variables
           .filter(
-            (variable) => variable.key !== findKeyAndValue("api_key")?.key
+            (variable) => variable.key !== findKeyAndValue("api_key")?.key &&
+              !(selectedAIProvider?.provider === "chatgpt-plan" && variable.key === "model")
           )
           .map((variable) => {
             const getVariableValue = () => {

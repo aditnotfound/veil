@@ -11,7 +11,7 @@
 !macroend
 
 ; Provider selections are stored outside AppData in Windows Credential Manager.
-; Delete only Veil's three bundle-scoped targets when the same data-removal choice
+; Delete Veil's bundle-scoped credentials when the same data-removal choice
 ; is selected, and never during an updater-driven uninstall.
 !macro NSIS_HOOK_POSTUNINSTALL
   ${If} $DeleteAppDataCheckboxState = 1
@@ -21,5 +21,10 @@
     System::Call 'advapi32::CredDeleteW(w "selected-ai-provider.${BUNDLEID}.provider", i 1, i 0) i .r0'
     System::Call 'advapi32::CredDeleteW(w "selected-stt-provider.${BUNDLEID}.provider", i 1, i 0) i .r0'
     System::Call 'advapi32::CredDeleteW(w "selected-jev-provider.${BUNDLEID}.provider", i 1, i 0) i .r0'
+    System::Call 'advapi32::CredDeleteW(w "active-profile.${BUNDLEID}.chatgpt-plan", i 1, i 0) i .r0'
+    System::Call 'advapi32::CredDeleteW(w "id-token.${BUNDLEID}.chatgpt-plan", i 1, i 0) i .r0'
+    System::Call 'advapi32::CredDeleteW(w "access-token.${BUNDLEID}.chatgpt-plan", i 1, i 0) i .r0'
+    System::Call 'advapi32::CredDeleteW(w "refresh-token.${BUNDLEID}.chatgpt-plan", i 1, i 0) i .r0'
+    System::Call 'advapi32::CredDeleteW(w "host-id.${BUNDLEID}.chatgpt-plan", i 1, i 0) i .r0'
   ${EndIf}
 !macroend

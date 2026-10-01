@@ -2,6 +2,7 @@
 mod activate;
 mod api;
 mod capture;
+mod chatgpt_plan;
 mod db;
 mod provider_secrets;
 mod knowledge_index;
@@ -129,6 +130,12 @@ pub fn run() {
             provider_secrets::save_provider_secret,
             provider_secrets::get_provider_secret,
             provider_secrets::remove_provider_secret,
+            chatgpt_plan::chatgpt_plan_status,
+            chatgpt_plan::chatgpt_plan_sign_in,
+            chatgpt_plan::chatgpt_plan_sign_out,
+            chatgpt_plan::chatgpt_plan_models,
+            chatgpt_plan::chatgpt_plan_cancel,
+            chatgpt_plan::chatgpt_plan_response,
             window::set_window_height,
             window::open_dashboard,
             window::toggle_dashboard,
