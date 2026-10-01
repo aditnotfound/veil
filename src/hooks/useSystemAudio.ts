@@ -1449,6 +1449,7 @@ export function useSystemAudio() {
         historyOrder: "chronological",
         knowledgeMode: "local",
         responseProfile: "deep",
+        fastOpenAIAnswers,
         onKnowledgeError: () => {
           if (job.isCurrent()) setDeepAnswerError("Personal knowledge could not be searched locally.");
         },
@@ -1496,7 +1497,7 @@ export function useSystemAudio() {
         setIsDeepProcessing(false);
       }
     }
-  }, [allAiProviders, selectedAIProvider, useSystemPrompt, systemPrompt, contextContent, deepModelOverride]);
+  }, [allAiProviders, selectedAIProvider, useSystemPrompt, systemPrompt, contextContent, deepModelOverride, fastOpenAIAnswers]);
 
   const handleMicSegment = useCallback(async (audio: Blob, startedAt: number) => {
     micSpeechActiveRef.current = false;

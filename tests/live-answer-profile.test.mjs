@@ -34,14 +34,17 @@ test("deep answers, other models, custom providers and explicit settings remain 
   assert.equal(explicit.reasoning_effort, "high");
 });
 
-test("Fast mode applies only to opted-in short OpenAI GPT-6 cards", () => {
+test("Fast mode applies only to opted-in OpenAI GPT-6 call answers", () => {
   const fast = { model: "gpt-6-luna", messages: [] };
   applyLiveAnswerProfile(fast, "openai", "live-short", true);
   assert.equal(fast.service_tier, "fast");
   assert.equal(fast.reasoning_effort, "none");
+  const deep = { model: "gpt-6-sol", messages: [] };
+  applyLiveAnswerProfile(deep, "openai", "deep", true);
+  assert.equal(deep.service_tier, "fast");
+  assert.equal(deep.reasoning_effort, undefined);
 
   for (const [provider, profile, model] of [
-    ["openai", "deep", "gpt-6-luna"],
     ["openai", "default", "gpt-6-luna"],
     ["custom-openai", "live-short", "gpt-6-luna"],
     ["openai", "live-short", "gpt-4o"],
