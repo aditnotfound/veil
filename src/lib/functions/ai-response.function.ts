@@ -12,7 +12,7 @@ import { listen } from "@tauri-apps/api/event";
 import curl2Json from "@bany/curl-to-json";
 import { shouldUsePluelyAPI } from "./pluely.api";
 import { CHUNK_POLL_INTERVAL_MS } from "../chat-constants";
-import { getResponseSettings, RESPONSE_LENGTHS, LANGUAGES } from "@/lib";
+import { getResponseSettings, RESPONSE_LENGTHS, LANGUAGES, safeLocalStorage } from "@/lib";
 import { MARKDOWN_FORMATTING_INSTRUCTIONS } from "@/config/constants";
 import { retrievePersonalContext, retrievePersonalContextLocal } from "@/lib/knowledge";
 import { attachPersonalEvidence } from "@/lib/call/prompt-evidence";
@@ -402,7 +402,11 @@ export async function* fetchAIResponse(params: {
 
     bodyObj = deepVariableReplacer(bodyObj, allVariables);
     if (bodyObj && typeof bodyObj === "object" && !Array.isArray(bodyObj)) {
-      applyLiveAnswerProfile(bodyObj, provider.id ?? "", responseProfile ?? "default", fastOpenAIAnswers);
+      const fastEnabled = fastOpenAIAnswers ?? (
+        safeLocalStorage.getItem("veil_sol_fast_configuration_2026_10_02") !== "true" ||
+        safeLocalStorage.getItem("call_fast_openai_answers") === "true"
+      );
+      applyLiveAnswerProfile(bodyObj, provider.id ?? "", responseProfile ?? "default", fastEnabled);
     }
     let url = deepVariableReplacer(curlJson.url || "", allVariables);
 

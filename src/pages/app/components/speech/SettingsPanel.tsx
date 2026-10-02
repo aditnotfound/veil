@@ -336,12 +336,12 @@ export const SettingsPanel = ({
             <div className="flex items-start justify-between gap-4 rounded-lg border border-border/50 p-2.5">
               <div className="space-y-1">
                 <Label htmlFor="fast-openai-answers" className="text-xs font-medium">
-                  Fast OpenAI call answers
+                  Fast OpenAI answers
                 </Label>
                 <p className="text-[10px] text-muted-foreground">
-                  Requests Fast processing for GPT-6 OpenAI call cards and Go deeper, including Sol.
+                  Requests Fast processing for GPT-6 OpenAI Ask and Listen answers, including Sol.
                   Availability depends on your API account; Fast costs 2x the applicable model rate.
-                  Deep reasoning effort and other providers keep their existing settings.
+                  Actual speed varies. Deep reasoning effort and other providers keep their existing settings.
                 </p>
               </div>
               <Switch id="fast-openai-answers" checked={fastOpenAIAnswers}

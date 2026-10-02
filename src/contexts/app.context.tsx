@@ -55,6 +55,7 @@ const selectedProviderKey = {
   ai: STORAGE_KEYS.SELECTED_AI_PROVIDER,
   stt: STORAGE_KEYS.SELECTED_STT_PROVIDER,
 };
+const SOL_FAST_CONFIGURATION_KEY = "veil_sol_fast_configuration_2026_10_02";
 
 const validateAndProcessCurlProviders = (
   providersJson: string,
@@ -200,12 +201,34 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     providerReloadRef.current = Promise.allSettled([
       loadProviderSelection("ai", selectedProviderKey.ai, window.localStorage, providerVault),
       loadProviderSelection("stt", selectedProviderKey.stt, window.localStorage, providerVault),
-    ]).then(([ai, stt]) => {
+    ]).then(async ([ai, stt]) => {
       if (providerLoadEpochRef.current !== epoch) return;
-      if (ai.status === "fulfilled") setSelectedAIProvider(ai.value);
+      let aiConfigurationError = "";
+      if (ai.status === "fulfilled") {
+        let selected = ai.value;
+        if (safeLocalStorage.getItem(SOL_FAST_CONFIGURATION_KEY) !== "true") {
+          safeLocalStorage.setItem("call_fast_openai_answers", "true");
+          if (selected.provider === "openai") {
+            selected = {
+              ...selected,
+              variables: { ...selected.variables, model: "gpt-6-sol" },
+            };
+            try {
+              await saveProviderSelection(
+                "ai", selectedProviderKey.ai, selected, window.localStorage, providerVault
+              );
+            } catch {
+              aiConfigurationError = "OpenAI Sol Fast setting could not be saved to the OS credential store.";
+            }
+          }
+          if (!aiConfigurationError) safeLocalStorage.setItem(SOL_FAST_CONFIGURATION_KEY, "true");
+        }
+        if (providerLoadEpochRef.current !== epoch) return;
+        setSelectedAIProvider(selected);
+      }
       if (stt.status === "fulfilled") setSelectedSttProvider(stt.value);
       setProviderStorageErrors({
-        ai: ai.status === "rejected" ? "AI provider credentials could not be loaded from the OS store." : "",
+        ai: ai.status === "rejected" ? "AI provider credentials could not be loaded from the OS store." : aiConfigurationError,
         stt: stt.status === "rejected" ? "STT provider credentials could not be loaded from the OS store." : "",
       });
     });

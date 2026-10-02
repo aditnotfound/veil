@@ -148,7 +148,8 @@ export function useSystemAudio() {
   const [autoResponsePace, setAutoResponsePaceState] =
     useState<AutoResponsePace>("balanced");
   const [fastOpenAIAnswers, setFastOpenAIAnswersState] = useState(
-    () => safeLocalStorage.getItem("call_fast_openai_answers") === "true"
+    () => safeLocalStorage.getItem("veil_sol_fast_configuration_2026_10_02") !== "true" ||
+      safeLocalStorage.getItem("call_fast_openai_answers") === "true"
   );
   const [jevShadowEnabled, setJevShadowEnabledState] = useState(false);
   const [jevLiveAssistEnabled, setJevLiveAssistEnabledState] = useState(false);
