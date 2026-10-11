@@ -4,13 +4,9 @@ import { BotIcon, Loader2, SparklesIcon, TelescopeIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Props = {
-  lastTranscription: string;
   lastAnswerPrompt: string;
-  partialSystemCaption: string;
-  partialMicCaption: string;
   lastAIResponse: string;
   isAIProcessing: boolean;
-  latestSystemTurnText: string | null;
   deepAIResponse: string;
   isDeepProcessing: boolean;
   deepAnswerStatus: "draft" | null;
@@ -22,13 +18,9 @@ type Props = {
 };
 
 export const ResultsSection = ({
-  lastTranscription,
   lastAnswerPrompt,
-  partialSystemCaption,
-  partialMicCaption,
   lastAIResponse,
   isAIProcessing,
-  latestSystemTurnText,
   deepAIResponse,
   isDeepProcessing,
   deepAnswerStatus,
@@ -40,10 +32,8 @@ export const ResultsSection = ({
 }: Props) => {
   const hasResponse = lastAIResponse || isAIProcessing;
   const hasHistory = conversation.messages.length > 2;
-  const latestText = lastTranscription.replace(/^(System|Mic):\s*/i, "");
-  const showLatestTranscript = !!lastTranscription && (!hasResponse || latestText !== lastAnswerPrompt);
 
-  if (!hasResponse && !lastTranscription && !partialSystemCaption && !partialMicCaption && !latestSystemTurnText) {
+  if (!hasResponse && !hasHistory && !deepAIResponse && !isDeepProcessing && !deepAnswerError) {
     return null;
   }
 
@@ -72,32 +62,6 @@ export const ResultsSection = ({
           {lastAIResponse && <CopyButton content={lastAIResponse} />}
         </div>
       </div>
-
-      {(partialSystemCaption || partialMicCaption) && (
-        <div className="space-y-1 text-[11px] text-muted-foreground" aria-live="polite">
-          {partialSystemCaption && <p><span className="font-semibold">System · live:</span> {partialSystemCaption}</p>}
-          {partialMicCaption && <p><span className="font-semibold">Mic · live:</span> {partialMicCaption}</p>}
-        </div>
-      )}
-
-      {showLatestTranscript && (
-        <p className="text-[11px] text-muted-foreground">
-          <span className="font-semibold">Latest transcript · </span>{lastTranscription}
-        </p>
-      )}
-
-      {latestSystemTurnText && (
-        <div className="rounded-md border border-border/50 bg-background/60 p-2.5 space-y-2">
-          <p className="text-[11px] text-muted-foreground line-clamp-3">
-            <span className="font-semibold">Latest call audio · </span>{latestSystemTurnText}
-          </p>
-          {!hasResponse && (
-            <p className="text-[11px] text-muted-foreground">
-              Automatic detection stayed silent. Use the Answer now button in the Listen bar to respond to this turn.
-            </p>
-          )}
-        </div>
-      )}
 
       {/* Keep the answer tied to its original prompt as newer speech arrives. */}
       {!conversationMode && (

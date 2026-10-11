@@ -12,9 +12,12 @@ Based on the open-source [Pluely](https://github.com/iamsrikanthnani/pluely) `0.
 
 - **Ask** — questions over your screen with screenshots and streaming answers
 - **Listen** — system audio capture → STT → optional auto answers
+
 - **Knowledge** — personal notes/docs embedded locally; relevant chunks injected into prompts (RAG)
 - **BYO providers** — OpenAI and other curl-configured LLM / STT endpoints
 - **Stealth overlay** — always available, minimal chrome
+
+In Listen, **Auto answers** in the toolbar turns suggestions on or off while transcription continues. The chevron compacts the window to a transcript line; **All** opens every finalized turn from the current call. With **Deepgram Speech-to-Text** selected, **Live text** streams interim system and mic captions while capture is active. It starts enabled after this update and can be switched off. Other STT providers still use completed audio clips, so they cannot show word-by-word live text. Final transcripts are saved locally; interim captions are temporary. Longer WAV clips receive a longer, bounded transcription deadline.
 
 ## Quick start (dev)
 

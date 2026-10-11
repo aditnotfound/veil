@@ -62,3 +62,14 @@ test("base64 PCM decoder rejects odd byte counts", () => {
   assert.deepEqual([...new Uint8Array(pcm16FromBase64("AQI="))], [1, 2]);
   assert.throws(() => pcm16FromBase64("AQ=="));
 });
+
+test("audio arriving before the live socket opens is sent when ready", () => {
+  const h = harness();
+  const frame = pcm16FromFloat(new Float32Array([0.5, -0.5]));
+  assert.equal(h.stream.sendPcm(frame), true);
+  assert.equal(h.sent.length, 0);
+  h.socket.readyState = 1;
+  h.socket.onopen();
+  assert.deepEqual([...new Uint8Array(h.sent[0])], [...new Uint8Array(frame)]);
+  h.stream.close();
+});

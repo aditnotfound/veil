@@ -16,8 +16,11 @@ import {
   MicIcon,
   MicOffIcon,
   XIcon,
+  ChevronUpIcon,
+  ChevronDownIcon,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { ModeSwitcher } from "./ModeSwitcher";
 import { RecordingPanel } from "./RecordingPanel";
 import { ResultsSection } from "./ResultsSection";
@@ -27,6 +30,7 @@ import { QuickActions } from "./QuickActions";
 import { Warning } from "./Warning";
 import { ListenModeChips } from "./ListenModeChips";
 import { CallMicCapture } from "./CallMicCapture";
+import { TranscriptPanel } from "./TranscriptPanel";
 import { useSystemAudioType } from "@/hooks";
 import { useApp } from "@/contexts";
 import { cn } from "@/lib/utils";
@@ -36,7 +40,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
     capturing,
     isProcessing,
     isAIProcessing,
-    lastTranscription,
+    sessionUtterances,
     lastAnswerPrompt,
     lastAIResponse,
     deepAIResponse,
@@ -107,7 +111,6 @@ export const SystemAudio = (props: useSystemAudioType) => {
     toggleLiveCaptions,
     liveCaptionsAvailable,
     systemLiveStatus,
-    micLiveStatus,
     partialSystemCaption,
     partialMicCaption,
     handleMicFrame,
@@ -120,12 +123,45 @@ export const SystemAudio = (props: useSystemAudioType) => {
 
   // View mode toggle
   const [conversationMode, setConversationMode] = useState(false);
+  const [isCompact, setIsCompact] = useState(false);
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [showAllTranscripts, setShowAllTranscripts] = useState(false);
 
   const [isCapturingScreenshot, setIsCapturingScreenshot] = useState(false);
   const [screenshotError, setScreenshotError] = useState("");
 
   const isVadMode = vadConfig.enabled;
   const hasResponse = lastAIResponse || isAIProcessing;
+
+  const setCompactView = useCallback(async (compact: boolean) => {
+    try {
+      await invoke("set_window_height", {
+        window: getCurrentWebviewWindow(), height: compact ? 220 : 600,
+      });
+      setIsCompact(compact);
+    } catch (resizeError) {
+      console.error("Failed to resize Listen window:", resizeError);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!capturing) {
+      setIsCompact(false);
+      setTranscriptOpen(false);
+      setShowAllTranscripts(false);
+    }
+  }, [capturing]);
+
+  const toggleTranscript = () => {
+    if (isCompact) {
+      void setCompactView(false).then(() => setTranscriptOpen(true));
+    } else setTranscriptOpen((open) => !open);
+  };
+  const showAllTranscriptTurns = () => {
+    if (isCompact) void setCompactView(false);
+    setTranscriptOpen(true);
+    setShowAllTranscripts(true);
+  };
 
   // Keyboard shortcut for Cmd+K to toggle view mode
   useEffect(() => {
@@ -262,10 +298,10 @@ export const SystemAudio = (props: useSystemAudioType) => {
           <div className="flex flex-col h-[calc(100vh-4rem)] overflow-hidden">
             {/* Header - Mode Switcher + Actions */}
             <div className="flex-shrink-0 p-3 border-b border-border/50">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {/* Mode Switcher */}
-                {!setupRequired && (
-                  <ModeSwitcher
+                {!setupRequired && !isCompact && (
+                  <div className="flex-1 min-w-[220px]"><ModeSwitcher
                     isVadMode={isVadMode}
                     onModeChange={handleModeChange}
                     disabled={
@@ -274,22 +310,31 @@ export const SystemAudio = (props: useSystemAudioType) => {
                       isProcessing ||
                       isAIProcessing
                     }
-                  />
+                  /></div>
                 )}
                 {setupRequired && (
                   <h2 className="font-semibold text-sm">Setup Required</h2>
                 )}
 
                 {/* Action Buttons */}
-                <div className="flex items-center gap-1.5 flex-shrink-0">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {capturing && isVadMode && !setupRequired && (
+                    <Button size="sm" variant={autoResponseMode === "off" ? "outline" : "default"}
+                      onClick={() => setAutoResponseMode(autoResponseMode === "off" ? "on_question" : "off")}
+                      className="h-6 px-2 text-[10px]"
+                      title="Toggle automatic answers; transcription continues either way">
+                      Auto answers {autoResponseMode === "off" ? "off" : "on"}
+                    </Button>
+                  )}
                   {liveCaptionsAvailable && (
                     <Button
                       size="sm"
                       variant={liveCaptionsEnabled ? "default" : "outline"}
                       onClick={toggleLiveCaptions}
+                      className="h-6 px-2 text-[10px]"
                       title="Live captions send both audio sources to Deepgram while capture is active. Batch transcription remains the fallback."
                     >
-                      Live captions {liveCaptionsEnabled ? "on" : "off"}
+                      Live text {liveCaptionsEnabled ? "on" : "off"}
                     </Button>
                   )}
                   {capturing && !setupRequired && (
@@ -332,11 +377,21 @@ export const SystemAudio = (props: useSystemAudioType) => {
                       size="sm"
                       variant="ghost"
                       onClick={startNewConversation}
-                      className="h-6 text-[10px] gap-1 px-2"
+                      className={cn("h-6 text-[10px] gap-1 px-2", isCompact && "hidden")}
                       title="Start a new conversation"
                     >
                       <PlusIcon className="w-3 h-3" />
                       New
+                    </Button>
+                  )}
+
+                  {capturing && !setupRequired && (
+                    <Button type="button" size="icon" variant="ghost"
+                      className="h-6 w-6" onClick={() => void setCompactView(!isCompact)}
+                      title={isCompact ? "Expand Listen window" : "Compact Listen window"}
+                      aria-label={isCompact ? "Expand Listen window" : "Compact Listen window"}>
+                      {isCompact ? <ChevronDownIcon className="h-3.5 w-3.5" />
+                        : <ChevronUpIcon className="h-3.5 w-3.5" />}
                     </Button>
                   )}
 
@@ -359,7 +414,20 @@ export const SystemAudio = (props: useSystemAudioType) => {
               </div>
             </div>
 
-            <ScrollArea className="flex-1 min-h-0" ref={scrollAreaRef}>
+            {isCompact && !setupRequired ? (
+              <div className="p-2 space-y-1.5 overflow-hidden">
+                <TranscriptPanel utterances={sessionUtterances}
+                  partialSystem={partialSystemCaption} partialMic={partialMicCaption}
+                  liveAvailable={liveCaptionsAvailable} liveEnabled={liveCaptionsEnabled}
+                  systemStatus={systemLiveStatus} expanded={false} showAll={false} compact
+                  onToggle={toggleTranscript} onShowAll={showAllTranscriptTurns} />
+                {(lastAIResponse || isAIProcessing) && (
+                  <p className="text-[10px] line-clamp-2 px-1">
+                    {isAIProcessing && !lastAIResponse ? "Answering…" : lastAIResponse}
+                  </p>
+                )}
+              </div>
+            ) : <ScrollArea className="flex-1 min-h-0" ref={scrollAreaRef}>
               <div className="p-2 space-y-2">
                 {micError && (
                   <p role="status" className="text-[11px] text-destructive rounded border border-destructive/20 p-2">
@@ -436,23 +504,18 @@ export const SystemAudio = (props: useSystemAudioType) => {
                       onIgnore={ignoreContinuousRecording}
                     />
 
-                    {capturing && liveCaptionsEnabled && liveCaptionsAvailable && (
-                      <p className="text-[10px] text-muted-foreground">
-                        Live captions · System: {systemLiveStatus} · Mic: {micEnabled ? micLiveStatus : "muted"}
-                        {(systemLiveStatus === "fallback" || (micEnabled && micLiveStatus === "fallback"))
-                          ? " · Batch transcript still active" : ""}
-                      </p>
-                    )}
+                    <TranscriptPanel utterances={sessionUtterances}
+                      partialSystem={partialSystemCaption} partialMic={partialMicCaption}
+                      liveAvailable={liveCaptionsAvailable} liveEnabled={liveCaptionsEnabled}
+                      systemStatus={systemLiveStatus} expanded={transcriptOpen}
+                      showAll={showAllTranscripts} compact={false}
+                      onToggle={toggleTranscript} onShowAll={showAllTranscriptTurns} />
 
                     {/* AI Response */}
                     <ResultsSection
-                      lastTranscription={lastTranscription}
                       lastAnswerPrompt={lastAnswerPrompt}
-                      partialSystemCaption={partialSystemCaption}
-                      partialMicCaption={partialMicCaption}
                       lastAIResponse={lastAIResponse}
                       isAIProcessing={isAIProcessing}
-                      latestSystemTurnText={props.latestSystemTurn?.text ?? null}
                       deepAIResponse={deepAIResponse}
                       isDeepProcessing={isDeepProcessing}
                       deepAnswerStatus={deepAnswerStatus}
@@ -503,10 +566,10 @@ export const SystemAudio = (props: useSystemAudioType) => {
                   </>
                 )}
               </div>
-            </ScrollArea>
+            </ScrollArea>}
 
             {/* Quick Actions */}
-            {!setupRequired && hasResponse && (
+            {!isCompact && !setupRequired && hasResponse && (
               <div className="flex-shrink-0 border-t border-border/50 p-2">
                 <QuickActions
                   actions={quickActions}

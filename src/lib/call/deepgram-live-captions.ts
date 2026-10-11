@@ -28,6 +28,8 @@ export class DeepgramLiveCaptions {
   private socket: SocketLike;
   private committed: string[] = [];
   private closed = false;
+  private pendingFrames: ArrayBuffer[] = [];
+  private pendingBytes = 0;
   private keepAlive: ReturnType<typeof setInterval>;
   private onCaption: (text: string) => void;
   private onStatus: (status: CaptionStatus) => void;
@@ -55,7 +57,16 @@ export class DeepgramLiveCaptions {
     this.onStatus("connecting");
     // Deepgram's documented client-side authentication. The key is never in the URL.
     this.socket = socketFactory(url.toString(), ["token", apiKey]);
-    this.socket.onopen = () => this.onStatus("live");
+    this.socket.onopen = () => {
+      if (this.closed) return;
+      this.onStatus("live");
+      const frames = this.pendingFrames;
+      this.pendingFrames = [];
+      this.pendingBytes = 0;
+      for (const frame of frames) {
+        if (!this.sendPcm(frame)) break;
+      }
+    };
     this.socket.onerror = () => this.fail();
     this.socket.onclose = () => this.fail();
     this.socket.onmessage = (event) => this.acceptMessage(event.data);
@@ -68,8 +79,21 @@ export class DeepgramLiveCaptions {
   }
 
   sendPcm(frame: ArrayBuffer): boolean {
-    if (this.closed || this.socket.readyState !== 1) return false;
-    if (!frame.byteLength || frame.byteLength % 2 || this.socket.bufferedAmount > MAX_BUFFERED_BYTES) {
+    if (this.closed) return false;
+    if (!frame.byteLength || frame.byteLength % 2) {
+      this.fail();
+      return false;
+    }
+    if (this.socket.readyState === 0) {
+      if (this.pendingBytes + frame.byteLength > MAX_BUFFERED_BYTES) {
+        this.fail();
+        return false;
+      }
+      this.pendingFrames.push(frame);
+      this.pendingBytes += frame.byteLength;
+      return true;
+    }
+    if (this.socket.readyState !== 1 || this.socket.bufferedAmount > MAX_BUFFERED_BYTES) {
       this.fail();
       return false;
     }
@@ -102,6 +126,8 @@ export class DeepgramLiveCaptions {
   private fail() {
     if (this.closed) return;
     this.closed = true;
+    this.pendingFrames = [];
+    this.pendingBytes = 0;
     clearInterval(this.keepAlive);
     this.onStatus("fallback");
     this.socket.close();
@@ -110,6 +136,8 @@ export class DeepgramLiveCaptions {
   close() {
     if (this.closed) return;
     this.closed = true;
+    this.pendingFrames = [];
+    this.pendingBytes = 0;
     clearInterval(this.keepAlive);
     if (this.socket.readyState === 1) {
       this.socket.send(JSON.stringify({ type: "CloseStream" }));

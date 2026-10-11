@@ -36,7 +36,7 @@ import { appendCallSessionLedger } from "@/lib/database/call-session-ledger.acti
 import { deleteCallSessionPlanRevision, saveCallSessionPlan } from "@/lib/database/call-session-plan.action";
 import type { AnswerStreamEvent } from "@/lib/call/answer-card";
 import { buildJevShadowRequest, requestJevShadow, type JevShadowResult } from "@/lib/call/jev-shadow";
-import { transcribeWithRetry } from "@/lib/call/transcribe-with-retry";
+import { transcribeWithRetry, timeoutForWav } from "@/lib/call/transcribe-with-retry";
 import { DeepgramLiveCaptions, pcm16FromBase64, pcm16FromFloat, type CaptionStatus } from "@/lib/call/deepgram-live-captions";
 import { applyJevAssist, routeCallTurn, routeSequencedSystemTurn, normalizeTurn, callCardPrompt, deepCallPrompt, shouldCancelAnswerForDecision, type AnsweredTurn, type AutoResponseMode, type CallDecision } from "@/lib/call/decision-router";
 import { formatSessionLedgerEvidence, selectSessionLedgerEntries } from "@/lib/call/session-ledger";
@@ -123,6 +123,7 @@ export function useSystemAudio() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isAIProcessing, setIsAIProcessing] = useState(false);
   const [lastTranscription, setLastTranscription] = useState<string>("");
+  const [sessionUtterances, setSessionUtterances] = useState<FinalUtterance[]>([]);
   const [latestSystemTurn, setLatestSystemTurn] = useState<FinalUtterance | null>(null);
   const [lastAIResponse, setLastAIResponse] = useState<string>("");
   const [lastAnswerPrompt, setLastAnswerPrompt] = useState<string>("");
@@ -162,7 +163,8 @@ export function useSystemAudio() {
   const [micEnabled, setMicEnabled] = useState(true);
   const [micError, setMicError] = useState("");
   const [liveCaptionsEnabled, setLiveCaptionsEnabled] = useState(
-    () => safeLocalStorage.getItem("call_live_captions_enabled") === "true"
+    () => safeLocalStorage.getItem("veil_live_transcripts_v1") !== "true" ||
+      safeLocalStorage.getItem("call_live_captions_enabled") === "true"
   );
   const [systemLiveStatus, setSystemLiveStatus] = useState<CaptionStatus | "off">("off");
   const [micLiveStatus, setMicLiveStatus] = useState<CaptionStatus | "off">("off");
@@ -196,6 +198,7 @@ export function useSystemAudio() {
     selectedAudioDevices,
   } = useApp();
   const callCoreRef = useRef(new CallSessionCore());
+  const autoResponseModeRef = useRef(autoResponseMode);
   const attachedScreenshotRef = useRef<string | null>(null);
   const setAttachedScreenshot = useCallback((image: string | null) => {
     attachedScreenshotRef.current = image;
@@ -499,6 +502,10 @@ export function useSystemAudio() {
 
   // Load context settings and VAD config from localStorage on mount
   useEffect(() => {
+    if (safeLocalStorage.getItem("veil_live_transcripts_v1") !== "true") {
+      safeLocalStorage.setItem("call_live_captions_enabled", "true");
+      safeLocalStorage.setItem("veil_live_transcripts_v1", "true");
+    }
     const savedContext = safeLocalStorage.getItem(
       STORAGE_KEYS.SYSTEM_AUDIO_CONTEXT
     );
@@ -532,6 +539,7 @@ export function useSystemAudio() {
       savedAutoMode === "after_pause"
     ) {
       setAutoResponseModeState(savedAutoMode);
+      autoResponseModeRef.current = savedAutoMode;
     }
 
     const savedPace = safeLocalStorage.getItem(STORAGE_KEYS.AUTO_RESPONSE_PACE);
@@ -545,15 +553,17 @@ export function useSystemAudio() {
   }, []);
 
   const setAutoResponseMode = useCallback((mode: AutoResponseMode) => {
+    autoResponseModeRef.current = mode;
     setAutoResponseModeState(mode);
     safeLocalStorage.setItem(STORAGE_KEYS.AUTO_RESPONSE_MODE, mode);
     if (mode === "off") {
+      cancelAnswerForSpeech();
       abortJevShadows();
       setJevShadowEnabledState(false);
       setJevLiveAssistEnabledState(false);
       setJevShadowStatus("Off");
     }
-  }, [abortJevShadows]);
+  }, [abortJevShadows, cancelAnswerForSpeech]);
 
   const setAutoResponsePace = useCallback((pace: AutoResponsePace) => {
     setAutoResponsePaceState(pace);
@@ -736,7 +746,7 @@ export function useSystemAudio() {
                 selectedProvider: selectedSttProvider,
                 audio: audioBlob,
                 signal,
-              }), sttSessionSignal);
+              }), sttSessionSignal, timeoutForWav(bytes));
 
               timing.audioToSttMs = performance.now() - audioReadyPerf;
               sttStarted = false;
@@ -762,6 +772,7 @@ export function useSystemAudio() {
                   text: transcription.trim(),
                 };
                 if (!callCoreRef.current.appendFinal(utterance)) return;
+                setSessionUtterances(callCoreRef.current.orderedUtterances());
                 let utterancePersisted = true;
                 try {
                   await appendCallUtterance(utterance);
@@ -783,14 +794,15 @@ export function useSystemAudio() {
                 latestCompletedSystemSequenceRef.current = Math.max(
                   latestCompletedSystemSequenceRef.current, sequence
                 );
+                const currentAutoMode = autoResponseModeRef.current;
                 let decision: CallDecision = routeSequencedSystemTurn(
-                  utterance, autoResponseMode, lastAnsweredRef.current,
+                  utterance, currentAutoMode, lastAnsweredRef.current,
                   latestRoutedAnswerSequenceRef.current
                 );
                 const superseded = decision.reason === "superseded";
                 const jevResult = utterancePersisted &&
                   (!jevLiveAssistEnabled || decision.reason === "not_a_request")
-                  ? launchJevShadowRef.current(utterance, autoResponseMode, superseded)
+                  ? launchJevShadowRef.current(utterance, currentAutoMode, superseded)
                   : Promise.resolve(null);
                 if (jevLiveAssistEnabled && decision.reason === "not_a_request") {
                   const result = await jevResult;
@@ -805,7 +817,7 @@ export function useSystemAudio() {
                   );
                 }
                 if (utterancePersisted) {
-                  await saveCallTurnDecision(sessionId, decision, autoResponseMode, Date.now())
+                  await saveCallTurnDecision(sessionId, decision, currentAutoMode, Date.now())
                     .catch((err) => console.error("Failed to save call decision:", err));
                   launchSessionPlannerRef.current(utterance);
                 }
@@ -834,7 +846,7 @@ export function useSystemAudio() {
                       outcome = "canceled";
                       return;
                     }
-                    if (!job.isCurrent()) {
+                    if (!job.isCurrent() || autoResponseModeRef.current === "off") {
                       timing.status = "canceled";
                       outcome = "canceled";
                       return;
@@ -1531,7 +1543,7 @@ export function useSystemAudio() {
         selectedProvider: selectedSttProvider,
         audio,
         signal,
-      }), sttSessionSignal)).trim();
+      }), sttSessionSignal, timeoutForWav(new Uint8Array(await audio.arrayBuffer())))).trim();
       timing.audioToSttMs = performance.now() - audioReadyPerf;
       if (callCoreRef.current.activeSessionId !== sessionId) {
         timing.status = "canceled";
@@ -1550,6 +1562,7 @@ export function useSystemAudio() {
         text: transcription,
       };
       if (!callCoreRef.current.appendFinal(utterance)) return;
+      setSessionUtterances(callCoreRef.current.orderedUtterances());
       let ledgerPersisted = true;
       try {
         await appendCallUtterance(utterance);
@@ -1566,8 +1579,9 @@ export function useSystemAudio() {
       }
       if (callCoreRef.current.activeSessionId !== sessionId) return;
       launchSessionPlannerRef.current(utterance);
-      const decision = routeCallTurn(utterance, autoResponseMode, lastAnsweredRef.current);
-      await saveCallTurnDecision(sessionId, decision, autoResponseMode, Date.now())
+      const currentAutoMode = autoResponseModeRef.current;
+      const decision = routeCallTurn(utterance, currentAutoMode, lastAnsweredRef.current);
+      await saveCallTurnDecision(sessionId, decision, currentAutoMode, Date.now())
         .catch((err) => console.error("Failed to save microphone decision:", err));
       if (ledgerPersisted) setMicError("");
       if (startedAt >= latestShownStartedAtRef.current) {
@@ -1654,6 +1668,7 @@ export function useSystemAudio() {
       setDeepAnswerError("");
       setIsDeepProcessing(false);
       setLastTranscription("");
+      setSessionUtterances([]);
       setLatestSystemTurn(null);
       setConversation({
         id: conversationId,
@@ -1937,6 +1952,7 @@ export function useSystemAudio() {
       updatedAt: 0,
     });
     setLastTranscription("");
+    setSessionUtterances([]);
     setLatestSystemTurn(null);
     setLastAIResponse("");
     setLastAnswerPrompt("");
@@ -2099,6 +2115,7 @@ export function useSystemAudio() {
     isProcessing,
     isAIProcessing,
     lastTranscription,
+    sessionUtterances,
     latestSystemTurn,
     lastAIResponse,
     lastAnswerPrompt,

@@ -1,6 +1,21 @@
 /** A stalled batch STT request gets one bounded second chance. */
 export const STT_ATTEMPT_TIMEOUT_MS = 8_000;
 
+/** Allow long WAV clips time to upload and transcribe without slowing short turns. */
+export function timeoutForWav(wav: Uint8Array): number {
+  if (wav.byteLength < 44 ||
+      String.fromCharCode(...wav.subarray(0, 4)) !== "RIFF" ||
+      String.fromCharCode(...wav.subarray(8, 12)) !== "WAVE") {
+    return STT_ATTEMPT_TIMEOUT_MS;
+  }
+  const view = new DataView(wav.buffer, wav.byteOffset, wav.byteLength);
+  const byteRate = view.getUint32(28, true);
+  const dataBytes = view.getUint32(40, true);
+  if (!byteRate || dataBytes > wav.byteLength - 44) return STT_ATTEMPT_TIMEOUT_MS;
+  return Math.min(90_000, Math.max(STT_ATTEMPT_TIMEOUT_MS,
+    Math.ceil(dataBytes / byteRate * 750) + STT_ATTEMPT_TIMEOUT_MS));
+}
+
 export class TranscriptionTimeoutError extends Error {
   constructor(timeoutMs: number) {
     super(`Transcription timed out (${timeoutMs / 1000}s per attempt, 2 attempts)`);

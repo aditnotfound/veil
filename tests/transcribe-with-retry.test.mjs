@@ -1,6 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { transcribeWithRetry } from "../src/lib/call/transcribe-with-retry.ts";
+import { transcribeWithRetry, timeoutForWav } from "../src/lib/call/transcribe-with-retry.ts";
+
+test("long WAV recordings receive a larger bounded STT deadline", () => {
+  const wav = new Uint8Array(44 + 16000 * 2 * 60);
+  const view = new DataView(wav.buffer);
+  wav.set([82, 73, 70, 70], 0); // RIFF
+  wav.set([87, 65, 86, 69], 8); // WAVE
+  view.setUint32(28, 32000, true);
+  view.setUint32(40, wav.length - 44, true);
+  assert.equal(timeoutForWav(wav), 53_000);
+  assert.equal(timeoutForWav(new Uint8Array(8)), 8_000);
+});
 
 test("a stalled STT request is aborted and a second attempt can recover", async () => {
   const signals = [];
