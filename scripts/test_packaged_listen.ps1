@@ -51,9 +51,6 @@ if ($GoDeeper -and $ExpectSilence) {
 if ($Preamble -and -not $PreamblePattern) {
   throw 'PreamblePattern is required when Preamble is supplied.'
 }
-if ($Guidance -and ($AnswerNow -or $ExpectSilence)) {
-  throw 'Guidance requires an automatic answer.'
-}
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
@@ -88,7 +85,7 @@ function Find-GuidanceInput($window) {
   foreach ($element in (Get-Elements $window)) {
     if ($element.Current.ControlType -eq [System.Windows.Automation.ControlType]::Edit -and
         ($element.Current.AutomationId -eq 'listen-live-guidance' -or
-         $element.Current.Name -match 'Guide the next automatic answer|Press Enter to guide one automatic answer')) {
+         $element.Current.Name -match 'Guide answers until cleared')) {
       return $element
     }
   }
@@ -154,7 +151,7 @@ function Get-VisibleAnswerText($display) {
   # mistake a previous answer or transcript text for the new answer.
   $matches = [regex]::Matches(
     $display,
-    '(?is)Answering\s*[·:]\s*[^\r\n]+\s+Initial\s*[·:]\s*unverified\s*(?<answer>.*?)(?:\r?\nGo deeper|$)'
+    '(?is)Answering\s*[·:]\s*[^\r\n]+\s+Initial\s*[·:]\s*unverified\s*(?<answer>.*?)(?:\r?\nGo deeper|\r?\nLISTEN MODES|$)'
   )
   if ($matches.Count -eq 0) { return '' }
   return $matches[$matches.Count - 1].Groups['answer'].Value.Trim()
@@ -178,7 +175,10 @@ $result = [ordered]@{
   ManualFallbackClicked = $false
   AnswerStarted = $false
   AnswerVisible = $false
-  GuidanceQueued = $false
+  GuidanceApplied = $false
+  GuidancePersisted = $false
+  GuidanceCleared = $false
+  ClearTargetWidth = 0
   FinalAnswerWords = 0
   DeepTriggered = $false
   DeepCompleted = $false
@@ -251,11 +251,12 @@ try {
     $guideInput = Find-GuidanceInput $window
     if ($null -eq $guideInput) { throw 'The Listen guidance input was not found.' }
     $guideInput.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue($Guidance)
-    $guideButton = Find-Button $window 'Use guidance for next automatic answer'
-    if ($null -eq $guideButton) { throw 'The Use next guidance button was not found.' }
-    $guideButton.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-    $result.GuidanceQueued = (Get-DocumentText $window) -match '\bQueued\b'
-    if (-not $result.GuidanceQueued) { throw 'Guidance did not appear as queued.' }
+    Start-Sleep -Milliseconds 250
+    $guideInput = Find-GuidanceInput $window
+    $result.GuidanceApplied = $guideInput.GetCurrentPattern(
+      [System.Windows.Automation.ValuePattern]::Pattern
+    ).Current.Value -eq $Guidance
+    if (-not $result.GuidanceApplied) { throw 'Guidance did not remain in the input.' }
   }
 
   $voice = New-Object -ComObject SAPI.SpVoice
@@ -312,12 +313,19 @@ try {
       $result.FirstAnswerVisibleMs = $now - $speechEndedAt
     }
     if ($result.AnswerVisible -and $display -match 'Go deeper' -and $null -eq $result.TotalAnswerMs) {
-      $result.TotalAnswerMs = $now - $speechEndedAt
-      $result.FinalAnswerWords = @((Get-VisibleAnswerText $display) -split '\s+' | Where-Object { $_ }).Count
       if (-not $GoDeeper) {
-        # Let the short stream finish before collapsing capture, which cancels in-flight work.
+        # An older card can still expose Go deeper. Wait for the new answer text
+        # to arrive before treating this answer as complete.
         Start-Sleep -Milliseconds 1500
-        break
+        $finalAnswer = Get-VisibleAnswerText (Get-DocumentText $window)
+        $result.FinalAnswerWords = @($finalAnswer -split '\s+' | Where-Object { $_ }).Count
+        if ($result.FinalAnswerWords -ge [Math]::Max(1, $MinAnswerWords) -and
+            $finalAnswer -notmatch '^Generating response') {
+          $result.TotalAnswerMs = (Now-Milliseconds) - $speechEndedAt
+          break
+        }
+      } else {
+        $result.TotalAnswerMs = $now - $speechEndedAt
       }
     }
     if ($GoDeeper -and $result.AnswerVisible -and -not $result.DeepTriggered) {
@@ -336,6 +344,22 @@ try {
       $result.ProviderError = $Matches[1]
     }
     Start-Sleep -Milliseconds 100
+  }
+  if ($Guidance) {
+    $guideInput = Find-GuidanceInput $window
+    $guideValue = $guideInput.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value
+    if ($Trace) { Write-Host "TRACE guidance after answer=[$guideValue]" }
+    $result.GuidancePersisted = $guideValue -eq $Guidance
+    $clearButton = Find-Button $window 'Clear answer guidance'
+    if ($null -eq $clearButton) { throw 'The guidance clear button was not found.' }
+    $result.ClearTargetWidth = [Math]::Round($clearButton.Current.BoundingRectangle.Width)
+    $clearButton.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Start-Sleep -Milliseconds 250
+    $guideInput = Find-GuidanceInput $window
+    if ($Trace) { Write-Host "TRACE guidance after clear=[$($guideInput.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value)]" }
+    $result.GuidanceCleared = $guideInput.GetCurrentPattern(
+      [System.Windows.Automation.ValuePattern]::Pattern
+    ).Current.Value -eq ''
   }
 } finally {
   if ($opened) {
@@ -385,5 +409,7 @@ if ($ExpectSilence) {
 if (-not $result.TranscriptDetected -or -not $result.AnswerVisible -or
     $null -eq $result.TotalAnswerMs -or $result.ProviderError -or
     $result.FinalAnswerWords -lt $MinAnswerWords -or
+    ($Guidance -and (-not $result.GuidancePersisted -or -not $result.GuidanceCleared -or
+      $result.ClearTargetWidth -lt 30)) -or
     ($AnswerNow -and -not $result.ManualFallbackClicked) -or
     ($GoDeeper -and -not $result.DeepCompleted)) { exit 1 }

@@ -40,7 +40,6 @@ import { transcribeWithRetry, timeoutForWav } from "@/lib/call/transcribe-with-r
 import { DeepgramLiveCaptions, pcm16FromBase64, pcm16FromFloat, type CaptionStatus } from "@/lib/call/deepgram-live-captions";
 import { OpenAILiveCaptions } from "@/lib/call/openai-live-captions";
 import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, callCardPrompt, deepCallPrompt, shouldCancelAnswerForDecision, MAX_LIVE_GUIDANCE_CHARS, type AnsweredTurn, type AutoResponseMode, type CallDecision } from "@/lib/call/decision-router";
-import { OneShotGuidance } from "@/lib/call/one-shot-guidance";
 import { formatSessionLedgerEvidence, selectSessionLedgerEntries } from "@/lib/call/session-ledger";
 import { buildSessionPlannerSnapshot, formatSessionPlanEvidence, parseSessionPlan, SESSION_PLANNER_MILESTONE, SESSION_PLANNER_PROMPT, SessionPlannerCoordinator, type ActiveSessionPlan } from "@/lib/call/session-planner";
 import { selectedModelName, withModelOverride } from "@/lib/call/deep-provider";
@@ -125,28 +124,15 @@ export function useSystemAudio() {
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [liveAnswerGuidance, setLiveAnswerGuidanceState] = useState("");
-  const [pendingAnswerGuidance, setPendingAnswerGuidance] = useState("");
-  const guidanceQueueRef = useRef(new OneShotGuidance());
+  const liveAnswerGuidanceRef = useRef("");
   const setLiveAnswerGuidance = useCallback((value: string) => {
     const bounded = value.slice(0, MAX_LIVE_GUIDANCE_CHARS);
+    liveAnswerGuidanceRef.current = bounded;
     setLiveAnswerGuidanceState(bounded);
   }, []);
-  const queueAnswerGuidance = useCallback(() => {
-    if (!liveAnswerGuidance.trim()) return;
-    const queued = guidanceQueueRef.current.queue(liveAnswerGuidance);
-    setPendingAnswerGuidance(queued);
-    setLiveAnswerGuidanceState("");
-  }, [liveAnswerGuidance]);
-  const clearPendingAnswerGuidance = useCallback(() => {
-    guidanceQueueRef.current.clear();
-    setPendingAnswerGuidance("");
-  }, []);
   useEffect(() => {
-    if (!capturing) {
-      setLiveAnswerGuidance("");
-      clearPendingAnswerGuidance();
-    }
-  }, [capturing, setLiveAnswerGuidance, clearPendingAnswerGuidance]);
+    if (!capturing) setLiveAnswerGuidance("");
+  }, [capturing, setLiveAnswerGuidance]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isAIProcessing, setIsAIProcessing] = useState(false);
   const [lastTranscription, setLastTranscription] = useState<string>("");
@@ -888,12 +874,11 @@ export function useSystemAudio() {
                       : contextContent || DEFAULT_SYSTEM_PROMPT;
 
                     const previousMessages = callCoreRef.current.historyBefore(utterance.id);
-                    const oneShotGuidance = guidanceQueueRef.current.take();
-                    if (oneShotGuidance) setPendingAnswerGuidance("");
+                    const activeGuidance = liveAnswerGuidanceRef.current;
 
                     const answered = await processWithAI(
                       transcription.trim(),
-                      callCardPrompt(effectiveSystemPrompt, oneShotGuidance),
+                      callCardPrompt(effectiveSystemPrompt, activeGuidance),
                       previousMessages,
                       job,
                       (firstChunkPerf) => {
@@ -903,7 +888,7 @@ export function useSystemAudio() {
                         timing.audioToFirstChunkMs = firstChunkPerf - audioReadyPerf;
                       },
                       utterance.id,
-                      oneShotGuidance ? "live-guided" : "live-short"
+                      activeGuidance ? "live-guided" : "live-short"
                     );
                     timing.answerTotalMs = performance.now() - answerStartedPerf;
                     outcome = !job.isCurrent() ? "canceled" : answered ? "answered" : "failed";
@@ -1407,10 +1392,11 @@ export function useSystemAudio() {
     const effectiveSystemPrompt = useSystemPrompt
       ? systemPrompt || DEFAULT_SYSTEM_PROMPT
       : contextContent || DEFAULT_SYSTEM_PROMPT;
+    const activeGuidance = liveAnswerGuidanceRef.current;
     try {
       const answered = await processWithAI(
         turn.text,
-        callCardPrompt(effectiveSystemPrompt),
+        callCardPrompt(effectiveSystemPrompt, activeGuidance),
         callCoreRef.current.historyBefore(turn.id),
         job,
         (firstChunkPerf) => {
@@ -1418,7 +1404,8 @@ export function useSystemAudio() {
           timing.answerToFirstChunkMs = firstChunkPerf - answerStartedPerf;
           timing.audioToFirstChunkMs = answerStartedAt - audioReadyAt + timing.answerToFirstChunkMs;
         },
-        turn.id
+        turn.id,
+        activeGuidance ? "live-guided" : "live-short"
       );
       timing.answerTotalMs = performance.now() - answerStartedPerf;
       timing.status = !job.isCurrent() ? "canceled" : answered ? "answered" : "answer_error";
@@ -1997,7 +1984,6 @@ export function useSystemAudio() {
     setDeepAnswerStatus(null);
     setDeepAnswerError("");
     setLiveAnswerGuidance("");
-    clearPendingAnswerGuidance();
     setPartialSystemCaption("");
     setPartialMicCaption("");
     setMicError("");
@@ -2009,7 +1995,7 @@ export function useSystemAudio() {
     setIsDeepProcessing(false);
     setIsPopoverOpen(capturing);
     setUseSystemPrompt(true);
-  }, [capturing, abortJevShadows, sessionPlannerEnabled, clearAttachedScreenshot, setLiveAnswerGuidance, clearPendingAnswerGuidance]);
+  }, [capturing, abortJevShadows, sessionPlannerEnabled, clearAttachedScreenshot, setLiveAnswerGuidance]);
 
   // Update VAD configuration
   const updateVadConfiguration = useCallback(async (config: VadConfig) => {
@@ -2216,9 +2202,6 @@ export function useSystemAudio() {
     setAutoResponseMode,
     liveAnswerGuidance,
     setLiveAnswerGuidance,
-    pendingAnswerGuidance,
-    queueAnswerGuidance,
-    clearPendingAnswerGuidance,
     autoResponsePace,
     setAutoResponsePace,
     fastOpenAIAnswers,

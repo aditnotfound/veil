@@ -84,9 +84,6 @@ export const SystemAudio = (props: useSystemAudioType) => {
     setAutoResponseMode,
     liveAnswerGuidance,
     setLiveAnswerGuidance,
-    pendingAnswerGuidance,
-    queueAnswerGuidance,
-    clearPendingAnswerGuidance,
     autoResponsePace,
     setAutoResponsePace,
     fastOpenAIAnswers,
@@ -426,35 +423,16 @@ export const SystemAudio = (props: useSystemAudioType) => {
                   type="text"
                   value={liveAnswerGuidance}
                   onChange={(event) => setLiveAnswerGuidance(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      queueAnswerGuidance();
-                    }
-                  }}
                   maxLength={MAX_LIVE_GUIDANCE_CHARS}
-                  placeholder="Guide the next automatic answer…"
-                  title="Press Enter to guide one automatic answer"
+                  placeholder="Guide answers until cleared…"
+                  title="Guides automatic and Answer now cards until cleared or Listen stops"
                   className="h-5 min-w-0 flex-1 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground"
                 />
                 {liveAnswerGuidance && (
-                  <button type="button" onClick={queueAnswerGuidance}
-                    aria-label="Use guidance for next automatic answer" title="Use for next automatic answer"
-                    className="rounded px-1 text-[10px] font-medium text-primary hover:text-foreground">
-                    Use next
-                  </button>
-                )}
-                {pendingAnswerGuidance && (
-                  <span className="shrink-0 text-[10px] text-muted-foreground" title={`Queued: ${pendingAnswerGuidance}`}>
-                    Queued
-                  </span>
-                )}
-                {pendingAnswerGuidance && (
-                  <button type="button" onClick={clearPendingAnswerGuidance}
-                    aria-label="Cancel queued guidance" title="Cancel queued guidance"
-                    className="rounded p-0.5 text-muted-foreground hover:text-foreground">
-                    <XIcon className="h-3 w-3" />
+                  <button type="button" onClick={() => setLiveAnswerGuidance("")}
+                    aria-label="Clear answer guidance" title="Clear guidance"
+                    className="flex min-h-8 min-w-8 items-center justify-center rounded text-muted-foreground hover:text-foreground">
+                    <XIcon className="h-4 w-4" />
                   </button>
                 )}
               </div>
