@@ -30,6 +30,12 @@ Windows SAPI speech was played through system audio into the packaged Veil windo
 
 No provider or transcription error appeared in these runs. The revised short-card prompt produced direct prose without the earlier `Notes` and `Open` labels in the inspected answers. The packaged test harness now matches the current Fast-mode control label.
 
+## Visible timing for the next call
+
+While the packaged Veil window has Listen expanded, run `pwsh scripts/observe_packaged_listen.ps1 -ProcessId PID -OutputPath "$env:TEMP\veil-visible-call.jsonl" -DurationSeconds 180`. After the call, run `py scripts/report_visible_call_latency.py --db PATH_TO_veil.db --events "$env:TEMP\veil-visible-call.jsonl" --session SESSION_ID`. The observer stores timestamps and hashes of prompts, without transcript or answer text. Use a new output path for each run. Its readout can see a window covered by another app, so confirm actual on-screen visibility with the user.
+
+In a separate synthetic question on `9192a34`, the observer recorded first answer text 91 ms after the saved first provider chunk and completion 90 ms after the saved completion timestamp. Detected question end to first UI text was 4,343 ms for that single case. These are diagnostic checks of the observer, not real-call latency results.
+
 ## Remaining gate
 
 Run a short real call on the revised packaged build with an ordinary question and unrelated conversation. Confirm that the new router stays quiet when help is unnecessary, the answer appears in the panel, the wording sounds natural, and the user can still press Answer now. Record misses, false cards, errors, cancellations, and visible latency. Do not treat the synthetic results above as proof of this final live gate.
