@@ -34,6 +34,7 @@ import { TranscriptPanel } from "./TranscriptPanel";
 import { useSystemAudioType } from "@/hooks";
 import { useApp } from "@/contexts";
 import { cn } from "@/lib/utils";
+import { MAX_LIVE_GUIDANCE_CHARS } from "@/lib/call/decision-router";
 
 export const SystemAudio = (props: useSystemAudioType) => {
   const {
@@ -81,6 +82,8 @@ export const SystemAudio = (props: useSystemAudioType) => {
     scrollAreaRef,
     autoResponseMode,
     setAutoResponseMode,
+    liveAnswerGuidance,
+    setLiveAnswerGuidance,
     autoResponsePace,
     setAutoResponsePace,
     fastOpenAIAnswers,
@@ -409,6 +412,31 @@ export const SystemAudio = (props: useSystemAudioType) => {
                 </div>
               </div>
             </div>
+
+            {capturing && !setupRequired && (
+              <div className="mx-2 mt-1 flex items-center gap-1.5 rounded-md border border-border/60 bg-background/70 px-2 py-1">
+                <label htmlFor="listen-live-guidance" className="shrink-0 text-[10px] font-medium">
+                  Guide
+                </label>
+                <input
+                  id="listen-live-guidance"
+                  type="text"
+                  value={liveAnswerGuidance}
+                  onChange={(event) => setLiveAnswerGuidance(event.target.value)}
+                  maxLength={MAX_LIVE_GUIDANCE_CHARS}
+                  placeholder="Focus or tone for the next answers…"
+                  title="Guides new automatic and Answer now cards; clears when Listen stops"
+                  className="h-5 min-w-0 flex-1 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground"
+                />
+                {liveAnswerGuidance && (
+                  <button type="button" onClick={() => setLiveAnswerGuidance("")}
+                    aria-label="Clear answer guidance" title="Clear guidance"
+                    className="rounded p-0.5 text-muted-foreground hover:text-foreground">
+                    <XIcon className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            )}
 
             {isCompact && !setupRequired ? (
               <div className="p-2 space-y-1.5 overflow-hidden">

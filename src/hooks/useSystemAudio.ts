@@ -39,7 +39,7 @@ import { buildJevShadowRequest, requestJevShadow, type JevShadowResult } from "@
 import { transcribeWithRetry, timeoutForWav } from "@/lib/call/transcribe-with-retry";
 import { DeepgramLiveCaptions, pcm16FromBase64, pcm16FromFloat, type CaptionStatus } from "@/lib/call/deepgram-live-captions";
 import { OpenAILiveCaptions } from "@/lib/call/openai-live-captions";
-import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, callCardPrompt, deepCallPrompt, shouldCancelAnswerForDecision, type AnsweredTurn, type AutoResponseMode, type CallDecision } from "@/lib/call/decision-router";
+import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, callCardPrompt, deepCallPrompt, shouldCancelAnswerForDecision, MAX_LIVE_GUIDANCE_CHARS, type AnsweredTurn, type AutoResponseMode, type CallDecision } from "@/lib/call/decision-router";
 import { formatSessionLedgerEvidence, selectSessionLedgerEntries } from "@/lib/call/session-ledger";
 import { buildSessionPlannerSnapshot, formatSessionPlanEvidence, parseSessionPlan, SESSION_PLANNER_MILESTONE, SESSION_PLANNER_PROMPT, SessionPlannerCoordinator, type ActiveSessionPlan } from "@/lib/call/session-planner";
 import { selectedModelName, withModelOverride } from "@/lib/call/deep-provider";
@@ -123,6 +123,16 @@ export function useSystemAudio() {
   const globalShortcuts = useGlobalShortcuts();
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
   const [capturing, setCapturing] = useState(false);
+  const [liveAnswerGuidance, setLiveAnswerGuidanceState] = useState("");
+  const liveAnswerGuidanceRef = useRef("");
+  const setLiveAnswerGuidance = useCallback((value: string) => {
+    const bounded = value.slice(0, MAX_LIVE_GUIDANCE_CHARS);
+    liveAnswerGuidanceRef.current = bounded;
+    setLiveAnswerGuidanceState(bounded);
+  }, []);
+  useEffect(() => {
+    if (!capturing) setLiveAnswerGuidance("");
+  }, [capturing, setLiveAnswerGuidance]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isAIProcessing, setIsAIProcessing] = useState(false);
   const [lastTranscription, setLastTranscription] = useState<string>("");
@@ -867,7 +877,7 @@ export function useSystemAudio() {
 
                     const answered = await processWithAI(
                       transcription.trim(),
-                      callCardPrompt(effectiveSystemPrompt),
+                      callCardPrompt(effectiveSystemPrompt, liveAnswerGuidanceRef.current),
                       previousMessages,
                       job,
                       (firstChunkPerf) => {
@@ -1382,7 +1392,7 @@ export function useSystemAudio() {
     try {
       const answered = await processWithAI(
         turn.text,
-        callCardPrompt(effectiveSystemPrompt),
+        callCardPrompt(effectiveSystemPrompt, liveAnswerGuidanceRef.current),
         callCoreRef.current.historyBefore(turn.id),
         job,
         (firstChunkPerf) => {
@@ -1968,6 +1978,7 @@ export function useSystemAudio() {
     setDeepAIResponse("");
     setDeepAnswerStatus(null);
     setDeepAnswerError("");
+    setLiveAnswerGuidance("");
     setPartialSystemCaption("");
     setPartialMicCaption("");
     setMicError("");
@@ -1979,7 +1990,7 @@ export function useSystemAudio() {
     setIsDeepProcessing(false);
     setIsPopoverOpen(capturing);
     setUseSystemPrompt(true);
-  }, [capturing, abortJevShadows, sessionPlannerEnabled, clearAttachedScreenshot]);
+  }, [capturing, abortJevShadows, sessionPlannerEnabled, clearAttachedScreenshot, setLiveAnswerGuidance]);
 
   // Update VAD configuration
   const updateVadConfiguration = useCallback(async (config: VadConfig) => {
@@ -2047,6 +2058,8 @@ export function useSystemAudio() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isPopoverOpen) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement ||
+          (e.target instanceof HTMLElement && e.target.isContentEditable)) return;
 
       const scrollElement = scrollAreaRef.current?.querySelector(
         "[data-radix-scroll-area-viewport]"
@@ -2074,6 +2087,8 @@ export function useSystemAudio() {
     const handleRecordingShortcuts = (e: KeyboardEvent) => {
       if (!isPopoverOpen || !isContinuousMode) return;
       if (isProcessing || isAIProcessing) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement ||
+          (e.target instanceof HTMLElement && e.target.isContentEditable)) return;
 
       // Enter: Start recording (when not recording) or Stop & Send (when recording)
       if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
@@ -2091,14 +2106,12 @@ export function useSystemAudio() {
         ignoreContinuousRecording();
       }
 
-      // Space: Start recording (when not recording) - only if not typing in input
+      // Space: Start recording (when not recording)
       if (
         e.key === " " &&
         !isRecordingInContinuousMode &&
         !e.metaKey &&
-        !e.ctrlKey &&
-        !(e.target instanceof HTMLInputElement) &&
-        !(e.target instanceof HTMLTextAreaElement)
+        !e.ctrlKey
       ) {
         e.preventDefault();
         startContinuousRecording();
@@ -2182,6 +2195,8 @@ export function useSystemAudio() {
     // Auto-response settings
     autoResponseMode,
     setAutoResponseMode,
+    liveAnswerGuidance,
+    setLiveAnswerGuidance,
     autoResponsePace,
     setAutoResponsePace,
     fastOpenAIAnswers,

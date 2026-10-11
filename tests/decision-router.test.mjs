@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, deepCallPrompt, shouldCancelAnswerForDecision } from "../src/lib/call/decision-router.ts";
+import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, callCardPrompt, deepCallPrompt, shouldCancelAnswerForDecision, MAX_LIVE_GUIDANCE_CHARS } from "../src/lib/call/decision-router.ts";
 
 const turn = (text, source = "system", endedAt = 10_000) => ({
   id: `call:${source}:1`, sessionId: "call", source, sequence: 1,
@@ -10,7 +10,8 @@ const turn = (text, source = "system", endedAt = 10_000) => ({
 test("conservative router stays silent for social speech and ordinary statements", () => {
   for (const text of [
     "Hello everyone", "Thank you", "Can you hear me?", "How are you?",
-    "Do you have any questions?", "We will discuss the project now",
+    "Do you have any questions?", "You want a hard one?", "Are you ready for another harder one?",
+    "We will discuss the project now",
     "I qualified for USAMO twice", "Okay, that sounds good",
     "I think we should move on", "What?", "Um",
   ]) {
@@ -146,4 +147,16 @@ test("deep answer prompt labels the result as a draft and requires real checks",
   assert.match(prompt, /This response is a draft/i);
   assert.match(prompt, /never describe it as checked/i);
   assert.match(prompt, /\[C:id\].*\[K:id\]/s);
+});
+
+test("call card prompt applies bounded live guidance while retaining grounding rules", () => {
+  const plain = callCardPrompt("Base rules");
+  const guided = callCardPrompt("Base rules", "  Focus on the database question.  ");
+  assert.doesNotMatch(plain, /Focus on the database question/);
+  assert.match(guided, /Focus on the database question/);
+  assert.match(guided, /Never imply a source was checked/);
+  const longGuidance = "x".repeat(MAX_LIVE_GUIDANCE_CHARS + 20);
+  const bounded = callCardPrompt("Base rules", longGuidance);
+  assert.ok(bounded.includes("x".repeat(MAX_LIVE_GUIDANCE_CHARS)));
+  assert.ok(!bounded.includes("x".repeat(MAX_LIVE_GUIDANCE_CHARS + 1)));
 });
