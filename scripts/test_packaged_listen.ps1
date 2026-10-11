@@ -193,10 +193,10 @@ try {
   }
   if ($wasMicOn) { Invoke-Button $window 'Mic On' }
   if ($FastOpenAI) {
-    if ($null -eq (Find-Button $window 'Fast OpenAI call answers')) {
+    if ($null -eq (Find-Button $window 'Fast OpenAI answers')) {
       Invoke-Button $window 'Settings'
     }
-    $fastToggle = Find-Button $window 'Fast OpenAI call answers'
+    $fastToggle = Find-Button $window 'Fast OpenAI answers'
     if ($null -eq $fastToggle) { throw 'Fast OpenAI call-card switch was not found.' }
     $toggle = $fastToggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
     $fastWasOn = $toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On
@@ -321,7 +321,7 @@ try {
         }
       }
       if ($FastOpenAI -and -not $fastWasOn -and -not $LeaveFastOpenAIOn) {
-        $fastToggle = Find-Button $window 'Fast OpenAI call answers'
+        $fastToggle = Find-Button $window 'Fast OpenAI answers'
         if ($null -ne $fastToggle) {
           $toggle = $fastToggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
           if ($toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On) {
