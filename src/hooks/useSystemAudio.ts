@@ -39,7 +39,7 @@ import { buildJevShadowRequest, requestJevShadow, type JevShadowResult } from "@
 import { transcribeWithRetry, timeoutForWav } from "@/lib/call/transcribe-with-retry";
 import { DeepgramLiveCaptions, pcm16FromBase64, pcm16FromFloat, type CaptionStatus } from "@/lib/call/deepgram-live-captions";
 import { OpenAILiveCaptions } from "@/lib/call/openai-live-captions";
-import { applyJevAssist, routeCallTurn, routeSequencedSystemTurn, normalizeTurn, callCardPrompt, deepCallPrompt, shouldCancelAnswerForDecision, type AnsweredTurn, type AutoResponseMode, type CallDecision } from "@/lib/call/decision-router";
+import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, callCardPrompt, deepCallPrompt, shouldCancelAnswerForDecision, type AnsweredTurn, type AutoResponseMode, type CallDecision } from "@/lib/call/decision-router";
 import { formatSessionLedgerEvidence, selectSessionLedgerEntries } from "@/lib/call/session-ledger";
 import { buildSessionPlannerSnapshot, formatSessionPlanEvidence, parseSessionPlan, SESSION_PLANNER_MILESTONE, SESSION_PLANNER_PROMPT, SessionPlannerCoordinator, type ActiveSessionPlan } from "@/lib/call/session-planner";
 import { selectedModelName, withModelOverride } from "@/lib/call/deep-provider";
@@ -156,7 +156,6 @@ export function useSystemAudio() {
       safeLocalStorage.getItem("call_fast_openai_answers") === "true"
   );
   const [jevShadowEnabled, setJevShadowEnabledState] = useState(false);
-  const [jevLiveAssistEnabled, setJevLiveAssistEnabledState] = useState(false);
   const [jevShadowStatus, setJevShadowStatus] = useState("Off");
   const [sessionPlannerEnabled, setSessionPlannerEnabledState] = useState(false);
   const [sessionPlannerStatus, setSessionPlannerStatus] = useState("Off");
@@ -282,20 +281,14 @@ export function useSystemAudio() {
     setJevShadowEnabledState(enabled);
     setJevShadowStatus(enabled ? "Waiting for a finalized system turn" : "Off");
     if (!enabled) {
-      setJevLiveAssistEnabledState(false);
       abortJevShadows();
     }
   }, [jevShadowAvailable, abortJevShadows]);
-
-  const setJevLiveAssistEnabled = useCallback((enabled: boolean) => {
-    setJevLiveAssistEnabledState(enabled && jevShadowEnabled && jevShadowAvailable);
-  }, [jevShadowEnabled, jevShadowAvailable]);
 
   useEffect(() => {
     if (!jevShadowEnabled || jevShadowAvailable) return;
     abortJevShadows();
     setJevShadowEnabledState(false);
-    setJevLiveAssistEnabledState(false);
     setJevShadowStatus("Off");
   }, [jevShadowEnabled, jevShadowAvailable, abortJevShadows]);
 
@@ -332,14 +325,14 @@ export function useSystemAudio() {
         }).catch(() => console.error("Failed to save JEV shadow outcome"));
         if (callCoreRef.current.activeSessionId === utterance.sessionId) {
           setJevShadowStatus(result.status === "valid"
-            ? `${result.choice} · ${Math.round(result.latencyMs)} ms${jevLiveAssistEnabled ? " (assist enabled)" : " (shadow only)"}`
+            ? `${result.choice} · ${Math.round(result.latencyMs)} ms (shadow only)`
             : `${result.status} · ${Math.round(result.latencyMs)} ms`);
         }
         return result;
       })
       .catch(() => { console.error("Failed to save JEV shadow outcome"); return null; })
       .finally(() => jevShadowControllersRef.current.delete(controller));
-  }, [jevShadowEnabled, jevShadowKey, jevLiveAssistEnabled]);
+  }, [jevShadowEnabled, jevShadowKey]);
   const launchJevShadowRef = useRef(launchJevShadow);
   useEffect(() => { launchJevShadowRef.current = launchJevShadow; }, [launchJevShadow]);
 
@@ -576,7 +569,6 @@ export function useSystemAudio() {
       cancelAnswerForSpeech();
       abortJevShadows();
       setJevShadowEnabledState(false);
-      setJevLiveAssistEnabledState(false);
       setJevShadowStatus("Off");
     }
   }, [abortJevShadows, cancelAnswerForSpeech]);
@@ -814,21 +806,13 @@ export function useSystemAudio() {
                   latestCompletedSystemSequenceRef.current, sequence
                 );
                 const currentAutoMode = autoResponseModeRef.current;
-                let decision: CallDecision = routeSequencedSystemTurn(
+                const decision: CallDecision = routeSequencedSystemTurn(
                   utterance, currentAutoMode, lastAnsweredRef.current,
                   latestRoutedAnswerSequenceRef.current
                 );
                 const superseded = decision.reason === "superseded";
-                const jevResult = utterancePersisted &&
-                  (!jevLiveAssistEnabled || decision.reason === "not_a_request")
-                  ? launchJevShadowRef.current(utterance, currentAutoMode, superseded)
-                  : Promise.resolve(null);
-                if (jevLiveAssistEnabled && decision.reason === "not_a_request") {
-                  const result = await jevResult;
-                  decision = applyJevAssist(decision, result,
-                    callCoreRef.current.activeSessionId === sessionId &&
-                    sequence === latestCompletedSystemSequenceRef.current &&
-                    !manualAnswerInFlightRef.current);
+                if (utterancePersisted) {
+                  void launchJevShadowRef.current(utterance, currentAutoMode, superseded);
                 }
                 if (decision.action === "short_answer") {
                   latestRoutedAnswerSequenceRef.current = Math.max(
@@ -956,7 +940,6 @@ export function useSystemAudio() {
     allSttProviders,
     autoResponseMode,
     autoResponsePace,
-    jevLiveAssistEnabled,
     useSystemPrompt,
     systemPrompt,
     contextContent,
@@ -2205,8 +2188,6 @@ export function useSystemAudio() {
     jevShadowAvailable,
     jevShadowStatus,
     setJevShadowEnabled,
-    jevLiveAssistEnabled,
-    setJevLiveAssistEnabled,
     sessionPlannerEnabled,
     sessionPlannerAvailable,
     sessionPlannerStatus,

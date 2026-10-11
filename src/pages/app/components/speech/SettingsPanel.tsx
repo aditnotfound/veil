@@ -76,8 +76,6 @@ interface SettingsPanelProps {
   jevShadowAvailable: boolean;
   jevShadowStatus: string;
   setJevShadowEnabled: (enabled: boolean) => void;
-  jevLiveAssistEnabled: boolean;
-  setJevLiveAssistEnabled: (enabled: boolean) => void;
   sessionPlannerEnabled: boolean;
   sessionPlannerAvailable: boolean;
   sessionPlannerStatus: string;
@@ -103,8 +101,6 @@ export const SettingsPanel = ({
   jevShadowAvailable,
   jevShadowStatus,
   setJevShadowEnabled,
-  jevLiveAssistEnabled,
-  setJevLiveAssistEnabled,
   sessionPlannerEnabled,
   sessionPlannerAvailable,
   sessionPlannerStatus,
@@ -368,21 +364,6 @@ export const SettingsPanel = ({
                 onCheckedChange={setJevShadowEnabled}
                 disabled={!jevShadowAvailable || autoResponseMode === "off"}
               />
-            </div>
-
-            <div className="flex items-start justify-between gap-4 rounded-lg border border-border/50 p-2.5">
-              <div className="space-y-1">
-                <Label htmlFor="jev-live-assist" className="text-xs font-medium">
-                  Let JEV rescue unclear questions
-                </Label>
-                <p className="text-[10px] text-muted-foreground">
-                  Clear questions answer immediately. JEV checks only ambiguous turns; a confident decision can start a card.
-                  The JEV check has a 1.5 second deadline and may add latency to those turns.
-                </p>
-              </div>
-              <Switch id="jev-live-assist" checked={jevLiveAssistEnabled}
-                onCheckedChange={setJevLiveAssistEnabled}
-                disabled={!jevShadowEnabled || autoResponseMode === "off"} />
             </div>
 
             <div className="space-y-1 rounded-lg border border-border/50 p-2.5">

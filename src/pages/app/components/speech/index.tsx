@@ -89,8 +89,6 @@ export const SystemAudio = (props: useSystemAudioType) => {
     jevShadowAvailable,
     jevShadowStatus,
     setJevShadowEnabled,
-    jevLiveAssistEnabled,
-    setJevLiveAssistEnabled,
     sessionPlannerEnabled,
     sessionPlannerAvailable,
     sessionPlannerStatus,
@@ -549,8 +547,6 @@ export const SystemAudio = (props: useSystemAudioType) => {
                       jevShadowAvailable={jevShadowAvailable}
                       jevShadowStatus={jevShadowStatus}
                       setJevShadowEnabled={setJevShadowEnabled}
-                      jevLiveAssistEnabled={jevLiveAssistEnabled}
-                      setJevLiveAssistEnabled={setJevLiveAssistEnabled}
                       sessionPlannerEnabled={sessionPlannerEnabled}
                       sessionPlannerAvailable={sessionPlannerAvailable}
                       sessionPlannerStatus={sessionPlannerStatus}

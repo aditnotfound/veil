@@ -1,30 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyJevAssist, routeCallTurn, routeSequencedSystemTurn, normalizeTurn, deepCallPrompt, shouldCancelAnswerForDecision } from "../src/lib/call/decision-router.ts";
+import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, deepCallPrompt, shouldCancelAnswerForDecision } from "../src/lib/call/decision-router.ts";
 
 const turn = (text, source = "system", endedAt = 10_000) => ({
   id: `call:${source}:1`, sessionId: "call", source, sequence: 1,
   startedAt: endedAt - 700, endedAt, text,
-});
-
-test("JEV rescues only current ambiguous turns with a confident positive decision", () => {
-  const ambiguous = routeCallTurn(turn("Perhaps you could walk me through the cache failure"), "after_pause");
-  assert.equal(ambiguous.reason, "not_a_request");
-  const positive = { status: "valid", choice: "short_answer", confidence: 0.9 };
-  assert.deepEqual(applyJevAssist(ambiguous, positive, true), {
-    action: "short_answer", reason: "jev_assist", utteranceId: ambiguous.utteranceId,
-  });
-  for (const result of [
-    { ...positive, confidence: 0.84 },
-    { ...positive, confidence: null },
-    { ...positive, choice: "silence" },
-    { ...positive, status: "timeout" },
-  ]) assert.deepEqual(applyJevAssist(ambiguous, result, true), ambiguous);
-  assert.deepEqual(applyJevAssist(ambiguous, positive, false), ambiguous);
-  for (const text of ["Hello everyone", "What is a cache miss?"]) {
-    const decision = routeCallTurn(turn(text), "after_pause");
-    assert.deepEqual(applyJevAssist(decision, positive, true), decision);
-  }
 });
 
 test("conservative router stays silent for social speech and ordinary statements", () => {

@@ -4,24 +4,10 @@ export type AutoResponseMode = "off" | "on_question" | "after_pause";
 export const ROUTER_VERSION = "deterministic-v4-jev-assist";
 export type DecisionReason =
   | "mode_off" | "mic_source" | "short_or_noisy" | "social_or_housekeeping"
-  | "repeat_answered" | "not_a_request" | "superseded" | "explicit_question" | "direct_request" | "jev_assist";
+  | "repeat_answered" | "not_a_request" | "superseded" | "explicit_question" | "direct_request";
 export type CallDecision =
   | { action: "silence"; reason: DecisionReason; utteranceId: string }
-  | { action: "short_answer"; reason: "explicit_question" | "direct_request" | "jev_assist"; utteranceId: string };
-
-/** JEV can rescue only ambiguous turns; clear questions never wait for it. */
-export function applyJevAssist(
-  decision: CallDecision,
-  result: { status: string; choice: string | null; confidence: number | null } | null,
-  stillCurrent: boolean
-): CallDecision {
-  if (decision.action !== "silence" || decision.reason !== "not_a_request" ||
-      !stillCurrent || result?.status !== "valid" ||
-      result.choice !== "short_answer" || (result.confidence ?? 0) < 0.85) {
-    return decision;
-  }
-  return { action: "short_answer", reason: "jev_assist", utteranceId: decision.utteranceId };
-}
+  | { action: "short_answer"; reason: "explicit_question" | "direct_request"; utteranceId: string };
 
 /** Only a finalized answer-worthy turn should supersede an in-flight answer. */
 export function shouldCancelAnswerForDecision(decision: CallDecision): boolean {
