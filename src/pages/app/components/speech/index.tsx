@@ -110,6 +110,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
     liveCaptionsEnabled,
     toggleLiveCaptions,
     liveCaptionsAvailable,
+    liveCaptionsProvider,
     systemLiveStatus,
     partialSystemCaption,
     partialMicCaption,
@@ -125,7 +126,6 @@ export const SystemAudio = (props: useSystemAudioType) => {
   const [conversationMode, setConversationMode] = useState(false);
   const [isCompact, setIsCompact] = useState(false);
   const [transcriptOpen, setTranscriptOpen] = useState(false);
-  const [showAllTranscripts, setShowAllTranscripts] = useState(false);
 
   const [isCapturingScreenshot, setIsCapturingScreenshot] = useState(false);
   const [screenshotError, setScreenshotError] = useState("");
@@ -148,7 +148,6 @@ export const SystemAudio = (props: useSystemAudioType) => {
     if (!capturing) {
       setIsCompact(false);
       setTranscriptOpen(false);
-      setShowAllTranscripts(false);
     }
   }, [capturing]);
 
@@ -160,7 +159,6 @@ export const SystemAudio = (props: useSystemAudioType) => {
   const showAllTranscriptTurns = () => {
     if (isCompact) void setCompactView(false);
     setTranscriptOpen(true);
-    setShowAllTranscripts(true);
   };
 
   // Keyboard shortcut for Cmd+K to toggle view mode
@@ -332,7 +330,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
                       variant={liveCaptionsEnabled ? "default" : "outline"}
                       onClick={toggleLiveCaptions}
                       className="h-6 px-2 text-[10px]"
-                      title="Live captions send both audio sources to Deepgram while capture is active. Batch transcription remains the fallback."
+                      title={`Live captions send both audio sources to ${liveCaptionsProvider === "openai" ? "OpenAI" : "Deepgram"} while capture is active. Batch transcription remains the fallback.`}
                     >
                       Live text {liveCaptionsEnabled ? "on" : "off"}
                     </Button>
@@ -418,8 +416,8 @@ export const SystemAudio = (props: useSystemAudioType) => {
               <div className="p-2 space-y-1.5 overflow-hidden">
                 <TranscriptPanel utterances={sessionUtterances}
                   partialSystem={partialSystemCaption} partialMic={partialMicCaption}
-                  liveAvailable={liveCaptionsAvailable} liveEnabled={liveCaptionsEnabled}
-                  systemStatus={systemLiveStatus} expanded={false} showAll={false} compact
+                  liveAvailable={liveCaptionsAvailable} liveProvider={liveCaptionsProvider} liveEnabled={liveCaptionsEnabled}
+                  systemStatus={systemLiveStatus} expanded={false} compact
                   onToggle={toggleTranscript} onShowAll={showAllTranscriptTurns} />
                 {(lastAIResponse || isAIProcessing) && (
                   <p className="text-[10px] line-clamp-2 px-1">
@@ -506,9 +504,9 @@ export const SystemAudio = (props: useSystemAudioType) => {
 
                     <TranscriptPanel utterances={sessionUtterances}
                       partialSystem={partialSystemCaption} partialMic={partialMicCaption}
-                      liveAvailable={liveCaptionsAvailable} liveEnabled={liveCaptionsEnabled}
+                      liveAvailable={liveCaptionsAvailable} liveProvider={liveCaptionsProvider} liveEnabled={liveCaptionsEnabled}
                       systemStatus={systemLiveStatus} expanded={transcriptOpen}
-                      showAll={showAllTranscripts} compact={false}
+                      compact={false}
                       onToggle={toggleTranscript} onShowAll={showAllTranscriptTurns} />
 
                     {/* AI Response */}

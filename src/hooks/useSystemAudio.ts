@@ -38,11 +38,14 @@ import type { AnswerStreamEvent } from "@/lib/call/answer-card";
 import { buildJevShadowRequest, requestJevShadow, type JevShadowResult } from "@/lib/call/jev-shadow";
 import { transcribeWithRetry, timeoutForWav } from "@/lib/call/transcribe-with-retry";
 import { DeepgramLiveCaptions, pcm16FromBase64, pcm16FromFloat, type CaptionStatus } from "@/lib/call/deepgram-live-captions";
+import { OpenAILiveCaptions } from "@/lib/call/openai-live-captions";
 import { applyJevAssist, routeCallTurn, routeSequencedSystemTurn, normalizeTurn, callCardPrompt, deepCallPrompt, shouldCancelAnswerForDecision, type AnsweredTurn, type AutoResponseMode, type CallDecision } from "@/lib/call/decision-router";
 import { formatSessionLedgerEvidence, selectSessionLedgerEntries } from "@/lib/call/session-ledger";
 import { buildSessionPlannerSnapshot, formatSessionPlanEvidence, parseSessionPlan, SESSION_PLANNER_MILESTONE, SESSION_PLANNER_PROMPT, SessionPlannerCoordinator, type ActiveSessionPlan } from "@/lib/call/session-planner";
 import { selectedModelName, withModelOverride } from "@/lib/call/deep-provider";
 export type { AutoResponseMode } from "@/lib/call/decision-router";
+
+type LiveCaptionStream = DeepgramLiveCaptions | OpenAILiveCaptions;
 
 // VAD Configuration interface matching Rust
 export interface VadConfig {
@@ -197,6 +200,19 @@ export function useSystemAudio() {
     setSystemPrompt,
     selectedAudioDevices,
   } = useApp();
+  const keyFrom = (variables: Record<string, string>) =>
+    Object.entries(variables).find(([name]) => name.toUpperCase() === "API_KEY")?.[1]?.trim() ?? "";
+  const openaiLiveKey = (selectedAIProvider.provider === "openai"
+    ? keyFrom(selectedAIProvider.variables) : "") ||
+    (selectedSttProvider.provider === "openai-whisper"
+      ? keyFrom(selectedSttProvider.variables) : "");
+  const deepgramLiveKey = selectedSttProvider.provider === "deepgram-stt"
+    ? keyFrom(selectedSttProvider.variables) : "";
+  const deepgramLiveModel = Object.entries(selectedSttProvider.variables)
+    .find(([name]) => name.toUpperCase() === "MODEL")?.[1] || "nova-2";
+  const liveCaptionProvider: "openai" | "deepgram" | null = openaiLiveKey ? "openai"
+    : deepgramLiveKey ? "deepgram" : null;
+  const liveCaptionKey = openaiLiveKey || deepgramLiveKey;
   const callCoreRef = useRef(new CallSessionCore());
   const autoResponseModeRef = useRef(autoResponseMode);
   const attachedScreenshotRef = useRef<string | null>(null);
@@ -228,7 +244,7 @@ export function useSystemAudio() {
   const activeSessionPlanRef = useRef<ActiveSessionPlan | null>(null);
   const startingCaptureRef = useRef(false);
   const modeSwitchingRef = useRef(false);
-  const systemLiveRef = useRef<DeepgramLiveCaptions | null>(null);
+  const systemLiveRef = useRef<LiveCaptionStream | null>(null);
 
   const cancelAnswerForSpeech = useCallback(() => {
     // A user-requested answer should finish even if the call continues speaking.
@@ -418,7 +434,7 @@ export function useSystemAudio() {
   }, [sessionPlannerEnabled, allAiProviders, selectedAIProvider]);
   const launchSessionPlannerRef = useRef(launchSessionPlanner);
   useEffect(() => { launchSessionPlannerRef.current = launchSessionPlanner; }, [launchSessionPlanner]);
-  const micLiveRef = useRef<DeepgramLiveCaptions | null>(null);
+  const micLiveRef = useRef<LiveCaptionStream | null>(null);
   const systemSpeechActiveRef = useRef(false);
   const micSpeechActiveRef = useRef(false);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -441,18 +457,16 @@ export function useSystemAudio() {
   }, [capturing, liveCaptionsEnabled]);
 
   useEffect(() => {
-    if (!capturing || !liveCaptionsEnabled || selectedSttProvider.provider !== "deepgram-stt") {
+    if (!capturing) return;
+    void invoke("set_call_live_captions", {
+      enabled: liveCaptionsEnabled && Boolean(liveCaptionProvider),
+    }).catch(() => setSystemLiveStatus("fallback"));
+  }, [capturing, liveCaptionsEnabled, liveCaptionProvider]);
+
+  useEffect(() => {
+    if (!capturing || !liveCaptionsEnabled || !liveCaptionProvider) {
       setSystemLiveStatus("off");
       setMicLiveStatus("off");
-      return;
-    }
-    const variables = Object.fromEntries(
-      Object.entries(selectedSttProvider.variables).map(([key, value]) => [key.toUpperCase(), value])
-    );
-    const apiKey = variables.API_KEY?.trim();
-    if (!apiKey) {
-      setSystemLiveStatus("fallback");
-      setMicLiveStatus("fallback");
       return;
     }
     let disposed = false;
@@ -460,11 +474,12 @@ export function useSystemAudio() {
     const createStream = (sampleRate: number, source: "system" | "mic") => {
       const status = source === "system" ? setSystemLiveStatus : setMicLiveStatus;
       const caption = source === "system" ? setPartialSystemCaption : setPartialMicCaption;
-      const active = source === "system" ? systemSpeechActiveRef : micSpeechActiveRef;
       try {
-        return new DeepgramLiveCaptions(apiKey, variables.MODEL || "nova-2", sampleRate,
-          (text) => { if (!disposed && active.current) caption(text); },
-          (value) => { if (!disposed) status(value); });
+        const onCaption = (text: string) => { if (!disposed) caption(text); };
+        const onStatus = (value: CaptionStatus) => { if (!disposed) status(value); };
+        return liveCaptionProvider === "openai"
+          ? new OpenAILiveCaptions(liveCaptionKey, sampleRate, onCaption, onStatus, tauriFetch)
+          : new DeepgramLiveCaptions(liveCaptionKey, deepgramLiveModel, sampleRate, onCaption, onStatus);
       } catch {
         status("fallback");
         return null;
@@ -494,7 +509,8 @@ export function useSystemAudio() {
       systemLiveRef.current = null;
       micLiveRef.current = null;
     };
-  }, [capturing, liveCaptionsEnabled, selectedSttProvider, micEnabled]);
+  }, [capturing, liveCaptionsEnabled, liveCaptionProvider, liveCaptionKey,
+    deepgramLiveModel, micEnabled]);
 
   const handleMicFrame = useCallback((samples: Float32Array) => {
     micLiveRef.current?.sendPcm(pcm16FromFloat(samples));
@@ -669,7 +685,6 @@ export function useSystemAudio() {
         const unlistenStart = await listen("speech-start", () => {
           if (!capturing || !callCoreRef.current.activeSessionId) return;
           systemSpeechActiveRef.current = true;
-          setPartialSystemCaption("");
           // Do not cancel a visible answer on speculative speech. The finalized
           // turn below decides whether this is a new question and then cancels
           // obsolete work if needed.
@@ -697,6 +712,7 @@ export function useSystemAudio() {
             if (seenSystemSequencesRef.current.has(sequence)) return;
             seenSystemSequencesRef.current.add(sequence);
             systemSpeechActiveRef.current = false;
+            if (systemLiveRef.current instanceof OpenAILiveCaptions) systemLiveRef.current.commit();
             const emittedAt = Date.now();
             audioReadyPerf = performance.now();
             timing = {
@@ -760,7 +776,10 @@ export function useSystemAudio() {
               }
 
               if (transcription.trim()) {
-                if (!systemSpeechActiveRef.current) setPartialSystemCaption("");
+                if (!systemSpeechActiveRef.current) {
+                  setPartialSystemCaption("");
+                  if (systemLiveRef.current instanceof OpenAILiveCaptions) systemLiveRef.current.resetDisplay();
+                }
                 timing.status = "transcribed";
                 const utterance: FinalUtterance = {
                   id: `${sessionId}:system:${sequence}`,
@@ -1120,13 +1139,13 @@ export function useSystemAudio() {
       await invoke<string>("start_system_audio_capture", {
         vadConfig: vadConfig,
         deviceId: deviceId,
-        liveCaptions: liveCaptionsEnabled && selectedSttProvider.provider === "deepgram-stt",
+        liveCaptions: liveCaptionsEnabled && Boolean(liveCaptionProvider),
       });
     } catch (err) {
       console.error("Failed to start continuous recording:", err);
       setError(`Failed to start recording: ${err}`);
     }
-  }, [vadConfig, selectedAudioDevices.output.id, liveCaptionsEnabled, selectedSttProvider.provider]);
+  }, [vadConfig, selectedAudioDevices.output.id, liveCaptionsEnabled, liveCaptionProvider]);
 
   // Ignore current recording (stop without transcription)
   const ignoreContinuousRecording = useCallback(async () => {
@@ -1514,6 +1533,7 @@ export function useSystemAudio() {
 
   const handleMicSegment = useCallback(async (audio: Blob, startedAt: number) => {
     micSpeechActiveRef.current = false;
+    if (micLiveRef.current instanceof OpenAILiveCaptions) micLiveRef.current.commit();
     const sessionId = callCoreRef.current.activeSessionId;
     const sttSessionSignal = sttSessionControllerRef.current.signal;
     if (!sessionId || !micEnabled) return;
@@ -1550,7 +1570,10 @@ export function useSystemAudio() {
         return;
       }
       if (!transcription) throw new Error("Empty microphone transcription");
-      if (!micSpeechActiveRef.current) setPartialMicCaption("");
+      if (!micSpeechActiveRef.current) {
+        setPartialMicCaption("");
+        if (micLiveRef.current instanceof OpenAILiveCaptions) micLiveRef.current.resetDisplay();
+      }
       timing.status = "transcribed";
       const utterance: FinalUtterance = {
         id: `${sessionId}:mic:${sequence}`,
@@ -1611,7 +1634,6 @@ export function useSystemAudio() {
   const handleMicSpeechStart = useCallback(() => {
     if (!callCoreRef.current.activeSessionId) return;
     micSpeechActiveRef.current = true;
-    setPartialMicCaption("");
   }, []);
 
   const toggleMic = useCallback(() => {
@@ -1702,7 +1724,7 @@ export function useSystemAudio() {
       await invoke<string>("start_system_audio_capture", {
         vadConfig: vadConfig,
         deviceId: deviceId,
-        liveCaptions: liveCaptionsEnabled && selectedSttProvider.provider === "deepgram-stt",
+        liveCaptions: liveCaptionsEnabled && Boolean(liveCaptionProvider),
       });
       setCapturing(true);
     } catch (err) {
@@ -1718,7 +1740,7 @@ export function useSystemAudio() {
     } finally {
       startingCaptureRef.current = false;
     }
-  }, [vadConfig, selectedAudioDevices.output.id, liveCaptionsEnabled, selectedSttProvider.provider, sessionPlannerEnabled, clearAttachedScreenshot]);
+  }, [vadConfig, selectedAudioDevices.output.id, liveCaptionsEnabled, liveCaptionProvider, sessionPlannerEnabled, clearAttachedScreenshot]);
 
   const stopCapture = useCallback(async () => {
             const sessionId = callCoreRef.current.activeSessionId;
@@ -2198,7 +2220,8 @@ export function useSystemAudio() {
     micDeviceId: selectedAudioDevices.input.id,
     liveCaptionsEnabled,
     toggleLiveCaptions,
-    liveCaptionsAvailable: selectedSttProvider.provider === "deepgram-stt",
+    liveCaptionsAvailable: Boolean(liveCaptionProvider),
+    liveCaptionsProvider: liveCaptionProvider,
     systemLiveStatus,
     micLiveStatus,
     partialSystemCaption,
