@@ -18,6 +18,18 @@ test("latency-critical GPT-6 Sol and Luna cards disable extra reasoning", () => 
   }
 });
 
+test("one-time guided cards use low reasoning while ordinary cards stay fast", () => {
+  for (const model of ["gpt-6-sol", "gpt-6-luna", "gpt-6-astra"]) {
+    const body = { model, messages: [] };
+    applyLiveAnswerProfile(body, "openai", "live-guided", true);
+    assert.equal(body.reasoning_effort, "low");
+    assert.equal(body.service_tier, "fast");
+  }
+  const explicit = { model: "gpt-6-sol", reasoning_effort: "high" };
+  applyLiveAnswerProfile(explicit, "openai", "live-guided");
+  assert.equal(explicit.reasoning_effort, "high");
+});
+
 test("deep answers, other models, custom providers and explicit settings remain unchanged", () => {
   for (const [provider, profile, model] of [
     ["openai", "deep", "gpt-6-sol"],

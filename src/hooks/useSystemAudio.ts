@@ -902,7 +902,8 @@ export function useSystemAudio() {
                         timing.answerToFirstChunkMs = firstChunkPerf - answerStartedPerf;
                         timing.audioToFirstChunkMs = firstChunkPerf - audioReadyPerf;
                       },
-                      utterance.id
+                      utterance.id,
+                      oneShotGuidance ? "live-guided" : "live-short"
                     );
                     timing.answerTotalMs = performance.now() - answerStartedPerf;
                     outcome = !job.isCurrent() ? "canceled" : answered ? "answered" : "failed";
@@ -1184,7 +1185,8 @@ export function useSystemAudio() {
       previousMessages: Message[],
       existingJob?: AnswerJob,
       onFirstChunk?: (at: number) => void,
-      answerTurnId?: string
+      answerTurnId?: string,
+      responseProfile: "live-short" | "live-guided" = "live-short"
     ) => {
       const job = existingJob ?? callCoreRef.current.beginAnswer();
       if (!job.isCurrent()) return false;
@@ -1268,7 +1270,7 @@ export function useSystemAudio() {
             history: historyWithEvidence,
             historyOrder: "chronological",
             knowledgeMode: "local",
-            responseProfile: "live-short",
+            responseProfile,
             fastOpenAIAnswers,
             onKnowledgeError: () => {
               if (job.isCurrent()) setError("Personal knowledge could not be searched locally.");

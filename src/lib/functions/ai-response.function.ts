@@ -24,7 +24,7 @@ async function buildEnhancedSystemPrompt(params: {
   apiKey?: string;
   knowledgeMode?: "local" | "dense" | "none";
   onKnowledgeError?: () => void;
-  responseProfile?: "default" | "live-short" | "deep";
+  responseProfile?: "default" | "live-short" | "live-guided" | "deep";
 }): Promise<{ prompt: string; personalContext: string }> {
   const { baseSystemPrompt, userMessage, apiKey, knowledgeMode, onKnowledgeError, responseProfile } = params;
   const responseSettings = getResponseSettings();
@@ -51,7 +51,7 @@ async function buildEnhancedSystemPrompt(params: {
     prompts.push("Personal knowledge search failed for this answer. Do not claim it was checked or infer unsupported personal facts.");
   }
 
-  if (responseProfile !== "deep") {
+  if (responseProfile !== "deep" && responseProfile !== "live-guided") {
     const lengthOption = RESPONSE_LENGTHS.find(
       (l) => l.id === responseSettings.responseLength
     );
@@ -264,7 +264,7 @@ export async function* fetchAIResponse(params: {
   historyOrder?: "chronological" | "newest-first";
   knowledgeMode?: "local" | "none";
   onKnowledgeError?: () => void;
-  responseProfile?: "default" | "live-short" | "deep";
+  responseProfile?: "default" | "live-short" | "live-guided" | "deep";
   fastOpenAIAnswers?: boolean;
 }): AsyncIterable<string> {
   try {

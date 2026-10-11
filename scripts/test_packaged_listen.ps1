@@ -23,6 +23,8 @@ param(
   [string]$AnswerPattern = '21',
   [string]$Preamble = '',
   [string]$PreamblePattern = '',
+  [string]$Guidance = '',
+  [ValidateRange(0, 200)][int]$MinAnswerWords = 0,
   [ValidateRange(5, 90)][int]$TimeoutSeconds = 30,
   [switch]$AnswerNow,
   [switch]$ExpectSilence,
@@ -49,6 +51,9 @@ if ($GoDeeper -and $ExpectSilence) {
 if ($Preamble -and -not $PreamblePattern) {
   throw 'PreamblePattern is required when Preamble is supplied.'
 }
+if ($Guidance -and ($AnswerNow -or $ExpectSilence)) {
+  throw 'Guidance requires an automatic answer.'
+}
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
@@ -73,6 +78,17 @@ function Find-Button($window, [string]$name) {
   foreach ($element in (Get-Elements $window)) {
     if ($element.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
         $element.Current.Name -eq $name) {
+      return $element
+    }
+  }
+  return $null
+}
+
+function Find-GuidanceInput($window) {
+  foreach ($element in (Get-Elements $window)) {
+    if ($element.Current.ControlType -eq [System.Windows.Automation.ControlType]::Edit -and
+        ($element.Current.AutomationId -eq 'listen-live-guidance' -or
+         $element.Current.Name -match 'Guide the next automatic answer|Press Enter to guide one automatic answer')) {
       return $element
     }
   }
@@ -162,6 +178,8 @@ $result = [ordered]@{
   ManualFallbackClicked = $false
   AnswerStarted = $false
   AnswerVisible = $false
+  GuidanceQueued = $false
+  FinalAnswerWords = 0
   DeepTriggered = $false
   DeepCompleted = $false
   TranscriptVisibleMs = $null
@@ -229,6 +247,16 @@ try {
     $previousAutoMode = Get-SelectedAutoMode $window
     if ($previousAutoMode -ne 'Off') { Invoke-Button $window 'Off' }
   }
+  if ($Guidance) {
+    $guideInput = Find-GuidanceInput $window
+    if ($null -eq $guideInput) { throw 'The Listen guidance input was not found.' }
+    $guideInput.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue($Guidance)
+    $guideButton = Find-Button $window 'Use guidance for next automatic answer'
+    if ($null -eq $guideButton) { throw 'The Use next guidance button was not found.' }
+    $guideButton.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $result.GuidanceQueued = (Get-DocumentText $window) -match '\bQueued\b'
+    if (-not $result.GuidanceQueued) { throw 'Guidance did not appear as queued.' }
+  }
 
   $voice = New-Object -ComObject SAPI.SpVoice
   $voice.Rate = 1
@@ -285,6 +313,7 @@ try {
     }
     if ($result.AnswerVisible -and $display -match 'Go deeper' -and $null -eq $result.TotalAnswerMs) {
       $result.TotalAnswerMs = $now - $speechEndedAt
+      $result.FinalAnswerWords = @((Get-VisibleAnswerText $display) -split '\s+' | Where-Object { $_ }).Count
       if (-not $GoDeeper) {
         # Let the short stream finish before collapsing capture, which cancels in-flight work.
         Start-Sleep -Milliseconds 1500
@@ -355,5 +384,6 @@ if ($ExpectSilence) {
 }
 if (-not $result.TranscriptDetected -or -not $result.AnswerVisible -or
     $null -eq $result.TotalAnswerMs -or $result.ProviderError -or
+    $result.FinalAnswerWords -lt $MinAnswerWords -or
     ($AnswerNow -and -not $result.ManualFallbackClicked) -or
     ($GoDeeper -and -not $result.DeepCompleted)) { exit 1 }

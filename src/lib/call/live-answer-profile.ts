@@ -2,7 +2,7 @@
 export function applyLiveAnswerProfile(
   body: Record<string, unknown>,
   providerId: string,
-  profile: "default" | "live-short" | "deep",
+  profile: "default" | "live-short" | "live-guided" | "deep",
   fastOpenAIAnswers = false
 ): void {
   if (providerId !== "openai") return;
@@ -13,6 +13,9 @@ export function applyLiveAnswerProfile(
     body.reasoning_effort = /^(gpt-6-sol|gpt-6-luna)(?:$|-)/i.test(model)
       ? "none"
       : "low";
+  }
+  if (profile === "live-guided" && body.reasoning_effort === undefined) {
+    body.reasoning_effort = "low";
   }
   if (fastOpenAIAnswers && body.service_tier === undefined) {
     body.service_tier = "fast";

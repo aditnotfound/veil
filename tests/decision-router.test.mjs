@@ -154,9 +154,16 @@ test("deep answer prompt labels the result as a draft and requires real checks",
 test("call card prompt applies bounded live guidance while retaining grounding rules", () => {
   const plain = callCardPrompt("Base rules");
   const guided = callCardPrompt("Base rules", "  Focus on the database question.  ");
+  assert.match(plain, /at most 60 words/);
+  assert.match(plain, /one or two natural/);
   assert.doesNotMatch(plain, /Focus on the database question/);
   assert.match(guided, /Focus on the database question/);
+  assert.doesNotMatch(guided, /at most 60 words|one or two natural/);
+  assert.match(guided, /up to about 180 words/);
+  assert.match(guided, /key steps and a check/);
+  assert.match(guided, /explain the solution/);
   assert.match(guided, /Never imply a source was checked/);
+  assert.doesNotMatch(guided, /when consistent with rules above/);
   const longGuidance = "x".repeat(MAX_LIVE_GUIDANCE_CHARS + 20);
   const bounded = callCardPrompt("Base rules", longGuidance);
   assert.ok(bounded.includes("x".repeat(MAX_LIVE_GUIDANCE_CHARS)));
