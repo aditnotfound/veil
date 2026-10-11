@@ -4,6 +4,7 @@ type SocketLike = Pick<WebSocket, "readyState" | "bufferedAmount" | "send" | "cl
 type SocketFactory = (url: string, protocols: string[]) => SocketLike;
 type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
 type PendingEvent = { type: "audio"; audio: string; bytes: number } | { type: "commit" };
+type TranscriptPart = { text: string; completed: boolean };
 
 const TARGET_RATE = 24_000;
 const MAX_PENDING_BYTES = 512 * 1024;
@@ -69,8 +70,12 @@ export class OpenAILiveCaptions {
   private pendingBytes = 0;
   private ready = false;
   private closed = false;
-  private current = "";
-  private completed: string[] = [];
+  // Final events can arrive out of order; commit acknowledgments fix display order.
+  private pendingCommits: { visible: boolean }[] = [];
+  private itemOrder: string[] = [];
+  private items = new Map<string, TranscriptPart>();
+  private earlyParts = new Map<string, TranscriptPart>();
+  private hiddenItemIds = new Set<string>();
 
   constructor(
     apiKey: string,
@@ -150,13 +155,22 @@ export class OpenAILiveCaptions {
   }
 
   commit(): void {
-    if (!this.closed) this.queueOrSend({ type: "commit" });
+    if (this.closed) return;
+    this.pendingCommits.push({ visible: true });
+    this.queueOrSend({ type: "commit" });
   }
 
   /** The durable batch transcript has replaced this temporary display text. */
   resetDisplay(): void {
-    this.completed = [];
-    this.current = "";
+    for (const commit of this.pendingCommits) commit.visible = false;
+    for (const id of this.itemOrder) this.hiddenItemIds.add(id);
+    // Only recent completed items can still deliver late provider events.
+    while (this.hiddenItemIds.size > 128) {
+      this.hiddenItemIds.delete(this.hiddenItemIds.values().next().value!);
+    }
+    this.itemOrder = [];
+    this.items.clear();
+    this.earlyParts.clear();
   }
 
   private queueOrSend(event: PendingEvent): boolean {
@@ -202,16 +216,42 @@ export class OpenAILiveCaptions {
         for (const item of queued) if (!this.sendEvent(item)) break;
         return;
       }
-      if (event.type === "conversation.item.input_audio_transcription.delta" &&
-        typeof event.delta === "string") {
-        this.current += event.delta;
+      if (event.type === "input_audio_buffer.committed" &&
+        typeof event.item_id === "string") {
+        const commit = this.pendingCommits.shift();
+        if (!commit?.visible) {
+          this.earlyParts.delete(event.item_id);
+          return;
+        }
+        this.itemOrder.push(event.item_id);
+        this.items.set(event.item_id,
+          this.earlyParts.get(event.item_id) ?? { text: "", completed: false });
+        this.earlyParts.delete(event.item_id);
         this.emitCaption();
-      } else if (event.type === "conversation.item.input_audio_transcription.completed" &&
-        typeof event.transcript === "string") {
-        const final = event.transcript.trim();
-        if (final) this.completed.push(final);
-        this.current = "";
-        this.emitCaption();
+        return;
+      }
+      if ((event.type === "conversation.item.input_audio_transcription.delta" ||
+        event.type === "conversation.item.input_audio_transcription.completed") &&
+        typeof event.item_id === "string") {
+        if (this.hiddenItemIds.has(event.item_id)) return;
+        const part = this.items.get(event.item_id) ??
+          this.earlyParts.get(event.item_id) ?? { text: "", completed: false };
+        if (event.type === "conversation.item.input_audio_transcription.delta" &&
+          typeof event.delta === "string" && !part.completed) {
+          part.text += event.delta;
+        } else if (event.type === "conversation.item.input_audio_transcription.completed" &&
+          typeof event.transcript === "string") {
+          part.text = event.transcript.trim();
+          part.completed = true;
+        }
+        if (this.items.has(event.item_id)) {
+          this.items.set(event.item_id, part);
+          this.emitCaption();
+        } else if (this.pendingCommits.length > 0 &&
+          (this.earlyParts.has(event.item_id) || this.earlyParts.size < 16)) {
+          // A transcript event can race its commit acknowledgment.
+          this.earlyParts.set(event.item_id, part);
+        }
       }
     } catch {
       // Ignore malformed provider messages.
@@ -220,7 +260,8 @@ export class OpenAILiveCaptions {
 
   private emitCaption() {
     // Keep interim display bounded; saved batch turns hold the full call history.
-    const text = [...this.completed, this.current].join(" ").trim().slice(-12000);
+    const text = this.itemOrder.map((id) => this.items.get(id)?.text ?? "")
+      .filter(Boolean).join(" ").trim().slice(-12000);
     if (text) this.onCaption(text);
   }
 
@@ -230,6 +271,11 @@ export class OpenAILiveCaptions {
     this.ready = false;
     this.pending = [];
     this.pendingBytes = 0;
+    this.pendingCommits = [];
+    this.itemOrder = [];
+    this.items.clear();
+    this.earlyParts.clear();
+    this.hiddenItemIds.clear();
     clearTimeout(this.connectDeadline);
     this.abort.abort();
     this.onStatus("fallback");
@@ -242,6 +288,11 @@ export class OpenAILiveCaptions {
     this.ready = false;
     this.pending = [];
     this.pendingBytes = 0;
+    this.pendingCommits = [];
+    this.itemOrder = [];
+    this.items.clear();
+    this.earlyParts.clear();
+    this.hiddenItemIds.clear();
     clearTimeout(this.connectDeadline);
     this.abort.abort();
     this.socket?.close();

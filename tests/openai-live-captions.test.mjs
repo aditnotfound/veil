@@ -60,13 +60,54 @@ test("OpenAI live captions queue audio until a short-lived transcription session
   socket.onmessage({ data: JSON.stringify({ type: "session.updated" }) });
   assert.deepEqual(sent.slice(1).map((event) => event.type),
     ["input_audio_buffer.append", "input_audio_buffer.commit"]);
-  socket.onmessage({ data: JSON.stringify({ type: "conversation.item.input_audio_transcription.delta", delta: "Hel" }) });
-  socket.onmessage({ data: JSON.stringify({ type: "conversation.item.input_audio_transcription.delta", delta: "lo" }) });
-  socket.onmessage({ data: JSON.stringify({ type: "conversation.item.input_audio_transcription.completed", transcript: "Hello" }) });
+  socket.onmessage({ data: JSON.stringify({ type: "input_audio_buffer.committed", item_id: "item_1" }) });
+  socket.onmessage({ data: JSON.stringify({ type: "conversation.item.input_audio_transcription.delta", item_id: "item_1", delta: "Hel" }) });
+  socket.onmessage({ data: JSON.stringify({ type: "conversation.item.input_audio_transcription.delta", item_id: "item_1", delta: "lo" }) });
+  socket.onmessage({ data: JSON.stringify({ type: "conversation.item.input_audio_transcription.completed", item_id: "item_1", transcript: "Hello" }) });
   assert.deepEqual(captions, ["Hel", "Hello", "Hello"]);
   assert.deepEqual(statuses, ["connecting", "live"]);
   stream.close();
   assert.equal(socket.readyState, 3);
+});
+
+test("OpenAI live captions keep committed turn order when final transcripts arrive out of order", async () => {
+  const captions = [];
+  const socket = {
+    readyState: 1, bufferedAmount: 0, onopen: null, onmessage: null,
+    onerror: null, onclose: null, send() {}, close() { this.readyState = 3; },
+  };
+  const stream = new OpenAILiveCaptions("private-key", 16000,
+    (text) => captions.push(text), () => {},
+    async () => new Response(JSON.stringify({ value: "ek_short_lived" }), { status: 200 }),
+    () => socket);
+  await new Promise((resolve) => setImmediate(resolve));
+  socket.onopen();
+  socket.onmessage({ data: JSON.stringify({ type: "session.updated" }) });
+  const receive = (event) => socket.onmessage({ data: JSON.stringify(event) });
+  stream.commit();
+  stream.commit();
+  receive({ type: "input_audio_buffer.committed", item_id: "first" });
+  receive({ type: "input_audio_buffer.committed", item_id: "second" });
+  receive({ type: "conversation.item.input_audio_transcription.delta", item_id: "first", delta: "Why" });
+  receive({ type: "conversation.item.input_audio_transcription.completed", item_id: "second", transcript: "does it leak?" });
+  receive({ type: "conversation.item.input_audio_transcription.completed", item_id: "first", transcript: "Why" });
+  assert.equal(captions.at(-1), "Why does it leak?");
+  stream.resetDisplay();
+  receive({ type: "conversation.item.input_audio_transcription.completed", item_id: "first", transcript: "stale" });
+  assert.equal(captions.at(-1), "Why does it leak?");
+  stream.commit();
+  receive({ type: "conversation.item.input_audio_transcription.completed", item_id: "first", transcript: "still stale" });
+  receive({ type: "conversation.item.input_audio_transcription.delta", item_id: "third", delta: "New" });
+  receive({ type: "input_audio_buffer.committed", item_id: "third" });
+  assert.equal(captions.at(-1), "New");
+  receive({ type: "conversation.item.input_audio_transcription.completed", item_id: "third", transcript: "New turn." });
+  assert.equal(captions.at(-1), "New turn.");
+  stream.commit();
+  stream.resetDisplay();
+  receive({ type: "input_audio_buffer.committed", item_id: "fourth" });
+  receive({ type: "conversation.item.input_audio_transcription.completed", item_id: "fourth", transcript: "Late old turn." });
+  assert.equal(captions.at(-1), "New turn.");
+  stream.close();
 });
 
 test("OpenAI session errors stop streaming and leave batch transcription available", async () => {
