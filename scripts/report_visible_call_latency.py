@@ -17,8 +17,9 @@ except ModuleNotFoundError:
     from report_call_latency import percentile
 
 
-def _read_events(path: Path) -> list[dict]:
+def _read_events(path: Path) -> tuple[list[dict], list[int]]:
     events = []
+    samples = []
     for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if not line.strip():
             continue
@@ -27,13 +28,15 @@ def _read_events(path: Path) -> list[dict]:
             raise ValueError(f"Invalid observation on line {line_number}")
         if event.get("event") == "first_answer_text":
             events.append(event)
-    return sorted(events, key=lambda event: event["at"])
+        elif event.get("event") == "observer_sample":
+            samples.append(event["at"])
+    return sorted(events, key=lambda event: event["at"]), sorted(samples)
 
 
 def analyze(db_path: Path, events_path: Path, session_id: str) -> dict:
     if not db_path.is_file() or not events_path.is_file():
         raise FileNotFoundError("Database or observation file is missing")
-    events = _read_events(events_path)
+    events, samples = _read_events(events_path)
     with closing(sqlite3.connect(f"{db_path.resolve().as_uri()}?mode=ro", uri=True)) as db:
         db.row_factory = sqlite3.Row
         if db.execute("SELECT 1 FROM call_sessions WHERE id = ?", (session_id,)).fetchone() is None:
@@ -78,6 +81,11 @@ def analyze(db_path: Path, events_path: Path, session_id: str) -> dict:
             "initiator": row["initiator"],
             "outcome": row["outcome"],
             "visibleAt": visible_at,
+            "covered": (
+                row["first_chunk_at"] is not None
+                and any(row["first_chunk_at"] - 1_500 <= sample <= row["first_chunk_at"] for sample in samples)
+                and any(row["first_chunk_at"] <= sample <= row["completed_at"] + 5_000 for sample in samples)
+            ),
             "questionEndToVisibleMs": visible_at - row["ended_at"] if visible_at is not None else None,
             "firstChunkToUiMs": visible_at - row["first_chunk_at"] if visible_at is not None and row["first_chunk_at"] is not None else None,
             "questionEndToCompleteMs": row["completed_at"] - row["ended_at"],
@@ -86,6 +94,7 @@ def analyze(db_path: Path, events_path: Path, session_id: str) -> dict:
         "sessionId": session_id,
         "attempts": matches,
         "observedEvents": len(events),
+        "observationSamples": len(samples),
         "unmatchedEvents": len(events) - len(used),
         "prematureEvents": premature,
     }
@@ -95,6 +104,7 @@ def format_report(result: dict) -> str:
     lines = [
         f"Session: {result['sessionId']}",
         f"UI first-text events: {result['observedEvents']}",
+        f"UI observation samples: {result['observationSamples']}",
         f"Unmatched UI events: {result['unmatchedEvents']}",
         f"Rejected events before provider first chunk: {result['prematureEvents']}",
     ]
@@ -104,9 +114,11 @@ def format_report(result: dict) -> str:
             continue
         answered = [item for item in attempts if item["outcome"] == "answered"]
         visible = [item for item in answered if item["visibleAt"] is not None]
+        missing = [item for item in answered if item["visibleAt"] is None and item["covered"]]
+        unobserved = [item for item in answered if item["visibleAt"] is None and not item["covered"]]
         lines.append(
             f"\n{initiator}: attempts={len(attempts)}, answered={len(answered)}, "
-            f"visible={len(visible)}, missingVisible={len(answered) - len(visible)}, "
+            f"visible={len(visible)}, missingVisible={len(missing)}, unobserved={len(unobserved)}, "
             f"failed={sum(item['outcome'] == 'failed' for item in attempts)}, "
             f"canceled={sum(item['outcome'] == 'canceled' for item in attempts)}"
         )

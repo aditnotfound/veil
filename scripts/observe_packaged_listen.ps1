@@ -60,6 +60,8 @@ $waitingForText = $false
 $completed = $false
 $deadline = [Environment]::TickCount64 + ($DurationSeconds * 1000)
 $observed = 0
+$lastSampleAt = 0L
+Write-Event 'observer_start' '' ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())
 
 while ([Environment]::TickCount64 -lt $deadline) {
   if ($process.HasExited) { break }
@@ -74,6 +76,11 @@ while ([Environment]::TickCount64 -lt $deadline) {
     $display = $document.GetCurrentPattern(
       [System.Windows.Automation.TextPattern]::Pattern
     ).DocumentRange.GetText(20000)
+    $sampleAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    if ($sampleAt - $lastSampleAt -ge 1000) {
+      Write-Event 'observer_sample' '' $sampleAt
+      $lastSampleAt = $sampleAt
+    }
     $matches = [regex]::Matches(
       $display,
       '(?is)Answering\s*[·:]\s*(?<prompt>[^\r\n]+)\s+Initial\s*[·:]\s*unverified\s*(?<answer>.*?)(?:\r?\nGo deeper|$)'
@@ -117,6 +124,8 @@ while ([Environment]::TickCount64 -lt $deadline) {
   }
   Start-Sleep -Milliseconds $PollMilliseconds
 }
+
+Write-Event 'observer_end' '' ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())
 
 [pscustomobject]@{
   OutputPath = $outputFile
