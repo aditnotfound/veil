@@ -46,13 +46,19 @@ def report(db_path: Path, session_id: str | None = None) -> str:
             "FROM call_turn_timings t LEFT JOIN call_utterances u ON u.id = t.turn_id "
             f"AND u.session_id = t.session_id {where}", parameters
         ).fetchall()
-        attempt_where = "WHERE a.session_id = ?" if session_id else ""
-        attempts = db.execute(
-            "SELECT a.initiator, a.outcome, a.started_at, a.first_chunk_at, "
-            "a.completed_at, u.ended_at AS question_ended_at "
-            "FROM call_answer_attempts a LEFT JOIN call_utterances u ON u.id = a.turn_id "
-            f"AND u.session_id = a.session_id {attempt_where}", parameters
-        ).fetchall()
+        has_attempts = db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'call_answer_attempts'"
+        ).fetchone() is not None
+        if has_attempts:
+            attempt_where = "WHERE a.session_id = ?" if session_id else ""
+            attempts = db.execute(
+                "SELECT a.initiator, a.outcome, a.started_at, a.first_chunk_at, "
+                "a.completed_at, u.ended_at AS question_ended_at "
+                "FROM call_answer_attempts a LEFT JOIN call_utterances u ON u.id = a.turn_id "
+                f"AND u.session_id = a.session_id {attempt_where}", parameters
+            ).fetchall()
+        else:
+            attempts = []
 
     lines = [f"Turns (latest stage snapshot per turn): {len(rows)}"]
     for source in ("system", "mic"):
