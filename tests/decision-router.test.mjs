@@ -11,6 +11,7 @@ test("conservative router stays silent for social speech and ordinary statements
   for (const text of [
     "Hello everyone", "Thank you", "Can you hear me?", "How are you?",
     "Do you have any questions?", "You want a hard one?", "Are you ready for another harder one?",
+    "Scrambled eggs. You want a hard one?", "time? Okay, so it's not",
     "We will discuss the project now",
     "I qualified for USAMO twice", "Okay, that sounds good",
     "I think we should move on", "What?", "Um",
@@ -45,6 +46,7 @@ test("question mode ignores answered narration and cut-off explanation fragments
     "In a nested cross-validation study, how do we keep feature selection inside each training fold?"
   ), "on_question").action, "short_answer");
   assert.equal(routeCallTurn(turn("What's this? Do the math."), "on_question").action, "short_answer");
+  assert.equal(routeCallTurn(turn("So a century, is that a short amount?"), "on_question").action, "short_answer");
 });
 
 test("wh-led narration stays silent while a later independent question still routes", () => {
