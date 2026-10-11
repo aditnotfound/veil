@@ -6,14 +6,14 @@ pwsh scripts/test_packaged_listen.ps1 -ProcessId 1234 -Question 'What is nine pl
 .EXAMPLE
 pwsh scripts/test_packaged_listen.ps1 -ProcessId 1234 -Question 'What is nine plus twelve?' -TranscriptPattern 'What is (9|nine) plus (12|twelve)' -AnswerPattern '21' -AnswerNow
 .EXAMPLE
-pwsh scripts/test_packaged_listen.ps1 -ProcessId 1234 -Question 'I will send the file tomorrow.' -TranscriptPattern 'send the file tomorrow' -ExpectSilence
+pwsh scripts/test_packaged_listen.ps1 -ProcessId 1234 -Question 'I will send the file tomorrow.' -TranscriptPattern 'send (the|a) file tomorrow' -ExpectSilence
 .EXAMPLE
 pwsh scripts/test_packaged_listen.ps1 -ProcessId 1234 -Preamble 'You are choosing between a job and graduate study.' -PreamblePattern 'job and graduate' -Question 'You ask your teacher for guidance.' -TranscriptPattern 'ask your teacher' -ExpectSilence -JevShadow
 
 The transcript and answer arguments are regular expressions. AnswerPattern is
 matched anywhere in the active answer card, so a correct explanatory answer
 may contain the expected value alongside other text.
-JEV comparison stays shadow-only unless -JevAssist is also passed.
+JEV comparison stays shadow-only.
 Inspect call_jev_shadow for the saved choice.
 #>
 param(
@@ -29,7 +29,6 @@ param(
   [switch]$AnswerNow,
   [switch]$ExpectSilence,
   [switch]$JevShadow,
-  [switch]$JevAssist,
   [switch]$FastOpenAI,
   [switch]$LeaveFastOpenAIOn,
   [switch]$GoDeeper,
@@ -38,9 +37,6 @@ param(
 
 if ($AnswerNow -and $ExpectSilence) {
   throw 'AnswerNow and ExpectSilence cannot be used together.'
-}
-if ($JevAssist -and -not $JevShadow) {
-  throw 'JevAssist requires JevShadow.'
 }
 if ($LeaveFastOpenAIOn -and -not $FastOpenAI) {
   throw 'LeaveFastOpenAIOn requires FastOpenAI.'
@@ -55,6 +51,17 @@ if ($Preamble -and -not $PreamblePattern) {
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class VeilTestMouse {
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+  [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr window, int command);
+}
+'@
 
 function Get-Window {
   $process = Get-Process -Id $ProcessId -ErrorAction Stop
@@ -130,6 +137,28 @@ function Get-CaptureButton($window, [int]$TimeoutMs = 15000) {
   throw 'Listen capture control was not found.'
 }
 
+function Click-CaptureButton($window) {
+  $handle = (Get-Process -Id $ProcessId -ErrorAction Stop).MainWindowHandle
+  [VeilTestMouse]::ShowWindow($handle, 9) | Out-Null
+  [VeilTestMouse]::SetForegroundWindow($handle) | Out-Null
+  Start-Sleep -Milliseconds 150
+  $button = Get-CaptureButton $window
+  $rect = $button.Current.BoundingRectangle
+  if ($rect.Width -lt 10 -or $rect.Height -lt 10) {
+    throw 'Listen capture control has no clickable bounds.'
+  }
+  $oldPosition = [System.Windows.Forms.Cursor]::Position
+  try {
+    $x = [int]($rect.Left + $rect.Width / 2)
+    $y = [int]($rect.Top + $rect.Height / 2)
+    [VeilTestMouse]::SetCursorPos($x, $y) | Out-Null
+    [VeilTestMouse]::mouse_event(2, 0, 0, 0, [UIntPtr]::Zero)
+    [VeilTestMouse]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero)
+  } finally {
+    [System.Windows.Forms.Cursor]::Position = $oldPosition
+  }
+}
+
 function Get-DocumentText($window) {
   foreach ($element in (Get-Elements $window)) {
     if ($element.Current.ControlType -eq [System.Windows.Automation.ControlType]::Document) {
@@ -162,13 +191,12 @@ function Now-Milliseconds {
 }
 
 $window = Get-Window
-$capture = Get-CaptureButton $window
 $opened = $false
 $wasManual = $false
 $wasMicOn = $false
 $previousAutoMode = $null
 $fastWasOn = $false
-$assistWasOn = $false
+$jevWasOn = $false
 $result = [ordered]@{
   Question = $Question
   TranscriptDetected = $false
@@ -187,17 +215,23 @@ $result = [ordered]@{
   TotalAnswerMs = $null
   DeepCompletedMs = $null
   ProviderError = $null
+  CaptureStopped = $false
 }
 
 try {
-  $state = $capture.GetCurrentPattern(
-    [System.Windows.Automation.ExpandCollapsePattern]::Pattern
-  ).Current.ExpandCollapseState
-  if ($state -ne [System.Windows.Automation.ExpandCollapseState]::Collapsed) {
+  if ((Get-DocumentText $window) -match 'Listening\.\.\.') {
     throw 'Start this test with Listen capture stopped, so the result belongs to one fresh session.'
   }
-  $capture.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
+  Click-CaptureButton $window
   $opened = $true
+  $startDeadline = (Now-Milliseconds) + 15000
+  while ((Get-DocumentText $window) -notmatch 'Listening\.\.\.' -and
+         (Now-Milliseconds) -lt $startDeadline) {
+    Start-Sleep -Milliseconds 200
+  }
+  if ((Get-DocumentText $window) -notmatch 'Listening\.\.\.') {
+    throw 'Listen did not start capturing after the button click.'
+  }
   Start-Sleep -Seconds 2
 
   $wasManual = $null -ne (Find-Button $window 'Start Recording')
@@ -229,17 +263,9 @@ try {
       throw 'JEV comparison requires a configured local TypeSafe key.'
     }
     $toggle = $jev.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
-    if ($toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::Off) {
+    $jevWasOn = $toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On
+    if (-not $jevWasOn) {
       $toggle.Toggle()
-    }
-    if ($JevAssist) {
-      $assist = Find-Button $window 'Let JEV rescue unclear questions'
-      if ($null -eq $assist -or -not $assist.Current.IsEnabled) {
-        throw 'JEV live-assist switch was not available.'
-      }
-      $assistToggle = $assist.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
-      $assistWasOn = $assistToggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On
-      if (-not $assistWasOn) { $assistToggle.Toggle() }
     }
   }
   if ($AnswerNow) {
@@ -364,12 +390,12 @@ try {
 } finally {
   if ($opened) {
     try {
-      if ($JevAssist -and -not $assistWasOn) {
-        $assist = Find-Button $window 'Let JEV rescue unclear questions'
-        if ($null -ne $assist) {
-          $assistToggle = $assist.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
-          if ($assistToggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On) {
-            $assistToggle.Toggle()
+      if ($JevShadow -and -not $jevWasOn) {
+        $jev = Find-Button $window 'JEV comparison (experimental)'
+        if ($null -ne $jev) {
+          $jevToggle = $jev.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+          if ($jevToggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On) {
+            $jevToggle.Toggle()
           }
         }
       }
@@ -392,9 +418,19 @@ try {
       if ($wasMicOn -and $null -ne (Find-Button $window 'Mic Off')) {
         Invoke-Button $window 'Mic Off'
       }
-      (Get-CaptureButton $window).GetCurrentPattern(
-        [System.Windows.Automation.ExpandCollapsePattern]::Pattern
-      ).Collapse()
+      if ((Get-DocumentText $window) -match 'Listening\.\.\.') {
+        Click-CaptureButton $window
+      }
+      $settleDeadline = (Now-Milliseconds) + 5000
+      do {
+        Start-Sleep -Milliseconds 250
+        $stillListening = (Get-DocumentText $window) -match 'Listening\.\.\.'
+      } while ($stillListening -and
+               (Now-Milliseconds) -lt $settleDeadline)
+      if ($stillListening) {
+        Write-Warning 'Listen capture did not confirm stopped after the test.'
+      }
+      $result.CaptureStopped = -not $stillListening
     } catch {
       Write-Warning "Could not fully restore Listen controls: $_"
     }
@@ -403,11 +439,13 @@ try {
 
 [pscustomobject]$result
 if ($ExpectSilence) {
-  if (-not $result.TranscriptDetected -or $result.AnswerStarted -or $result.ProviderError) { exit 1 }
+  if (-not $result.TranscriptDetected -or $result.AnswerStarted -or $result.ProviderError -or
+      -not $result.CaptureStopped) { exit 1 }
   exit 0
 }
 if (-not $result.TranscriptDetected -or -not $result.AnswerVisible -or
     $null -eq $result.TotalAnswerMs -or $result.ProviderError -or
+    -not $result.CaptureStopped -or
     $result.FinalAnswerWords -lt $MinAnswerWords -or
     ($Guidance -and (-not $result.GuidancePersisted -or -not $result.GuidanceCleared -or
       $result.ClearTargetWidth -lt 30)) -or
