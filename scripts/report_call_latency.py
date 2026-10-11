@@ -1,6 +1,6 @@
 """Report local post-VAD call latency without reading transcript text.
 
-Usage: py scripts/report_call_latency.py --db PATH_TO_veil.db
+Usage: py scripts/report_call_latency.py --db PATH_TO_veil.db [--session ID]
 The first-chunk metric is not the PRD's first-useful-card metric.
 """
 
@@ -32,20 +32,29 @@ def percentile(values: list[float], percentile_value: float) -> float:
     return values[lower] + (values[upper] - values[lower]) * (index - lower)
 
 
-def report(db_path: Path) -> str:
+def report(db_path: Path, session_id: str | None = None) -> str:
     if not db_path.is_file():
         raise FileNotFoundError(db_path)
     with closing(sqlite3.connect(f"{db_path.resolve().as_uri()}?mode=ro", uri=True)) as db:
         db.row_factory = sqlite3.Row
+        where = "WHERE t.session_id = ?" if session_id else ""
+        parameters = (session_id,) if session_id else ()
         rows = db.execute(
             "SELECT t.source, t.status, t.audio_ready_at, u.ended_at AS question_ended_at, "
             "t.audio_to_stt_ms, t.wait_before_answer_ms, t.answer_to_first_chunk_ms, "
             "t.audio_to_first_chunk_ms, t.answer_total_ms "
             "FROM call_turn_timings t LEFT JOIN call_utterances u ON u.id = t.turn_id "
-            "AND u.session_id = t.session_id"
+            f"AND u.session_id = t.session_id {where}", parameters
+        ).fetchall()
+        attempt_where = "WHERE a.session_id = ?" if session_id else ""
+        attempts = db.execute(
+            "SELECT a.initiator, a.outcome, a.started_at, a.first_chunk_at, "
+            "a.completed_at, u.ended_at AS question_ended_at "
+            "FROM call_answer_attempts a LEFT JOIN call_utterances u ON u.id = a.turn_id "
+            f"AND u.session_id = a.session_id {attempt_where}", parameters
         ).fetchall()
 
-    lines = [f"Turns: {len(rows)}"]
+    lines = [f"Turns (latest stage snapshot per turn): {len(rows)}"]
     for source in ("system", "mic"):
         source_rows = []
         for row in rows:
@@ -84,9 +93,36 @@ def report(db_path: Path) -> str:
                     f"p50={percentile(values, 0.50):.0f} ms, "
                     f"p95={percentile(values, 0.95):.0f} ms"
                 )
+    lines.append(f"\nAnswer attempts: {len(attempts)}")
+    for initiator in sorted({row['initiator'] for row in attempts}):
+        selected = [row for row in attempts if row["initiator"] == initiator]
+        lines.append(f"  {initiator}: {len(selected)} attempts")
+        outcomes = sorted({row["outcome"] for row in selected})
+        lines.append("    Outcome: " + ", ".join(
+            f"{outcome}={sum(row['outcome'] == outcome for row in selected)}"
+            for outcome in outcomes
+        ))
+        attempt_metrics = (
+            ("Attempt start to first chunk", "started_at", "first_chunk_at"),
+            ("Question end to first chunk", "question_ended_at", "first_chunk_at"),
+            ("Question end to completion", "question_ended_at", "completed_at"),
+        )
+        for label, start, end in attempt_metrics:
+            values = [
+                float(row[end] - row[start]) for row in selected
+                if row[start] is not None and row[end] is not None
+            ]
+            if values:
+                lines.append(
+                    f"    {label}: n={len(values)}, "
+                    f"p50={percentile(values, 0.50):.0f} ms, "
+                    f"p95={percentile(values, 0.95):.0f} ms"
+                )
     lines.append(
-        "\nQuestion-end metrics use the finalized utterance end time and saved stage timings. "
-        "First chunk may be incomplete; neither metric proves a useful card appeared."
+        "\nTurn stage timings keep only the latest answer timing for a turn; "
+        "attempt timings separate automatic and Answer now requests. "
+        "Question-end times use finalized utterances. First chunk may be incomplete; "
+        "none of these metrics proves a useful card appeared."
     )
     return "\n".join(lines)
 
@@ -94,5 +130,6 @@ def report(db_path: Path) -> str:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", required=True, type=Path)
+    parser.add_argument("--session", help="Report a single saved call session")
     args = parser.parse_args()
-    print(report(args.db))
+    print(report(args.db, args.session))

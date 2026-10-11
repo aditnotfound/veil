@@ -97,9 +97,10 @@ function Get-SelectedAutoMode($window) {
 
 function Find-CaptureButton($window) {
   foreach ($element in (Get-Elements $window)) {
+    $patterns = @($element.GetSupportedPatterns() | ForEach-Object ProgrammaticName)
     if ($element.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
-        ($element.GetSupportedPatterns().ProgrammaticName -contains
-          'ExpandCollapsePatternIdentifiers.Pattern')) {
+        $element.Current.Name -eq '' -and
+        ($patterns -contains 'ExpandCollapsePatternIdentifiers.Pattern')) {
       return $element
     }
   }

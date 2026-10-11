@@ -1847,21 +1847,23 @@ export function useSystemAudio() {
     }
   }, [startCapture]);
 
+  const hasVisibleAnswer = lastAIResponse.length > 0;
+  const hasCaptureError = error.length > 0;
   useEffect(() => {
     const shouldOpenPopover =
       capturing ||
       setupRequired ||
       isAIProcessing ||
-      !!lastAIResponse ||
-      !!error;
+      hasVisibleAnswer ||
+      hasCaptureError;
     setIsPopoverOpen(shouldOpenPopover);
     resizeWindow(shouldOpenPopover);
   }, [
     capturing,
     setupRequired,
     isAIProcessing,
-    lastAIResponse,
-    error,
+    hasVisibleAnswer,
+    hasCaptureError,
     resizeWindow,
   ]);
 

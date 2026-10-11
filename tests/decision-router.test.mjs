@@ -49,6 +49,23 @@ test("question mode accepts explicit questions without punctuation but not instr
   assert.equal(routeCallTurn(turn("Explain the experiment design"), "on_question").action, "silence");
 });
 
+test("question mode ignores answered narration and cut-off explanation fragments", () => {
+  const narration = "The presenter asks, how is this possible? " +
+    "They then explain the method, show the calculation, discuss why it works, " +
+    "walk through a second example, and finish by giving the result to the audience. ".repeat(2);
+  for (const text of [
+    narration,
+    "Do the math.",
+    "is as a plus b times a minus b, with x as a and one as b.",
+  ]) {
+    assert.equal(routeCallTurn(turn(text), "on_question").action, "silence", text);
+  }
+  assert.equal(routeCallTurn(turn(
+    "In a nested cross-validation study, how do we keep feature selection inside each training fold?"
+  ), "on_question").action, "short_answer");
+  assert.equal(routeCallTurn(turn("What's this? Do the math."), "on_question").action, "short_answer");
+});
+
 test("punctuation-free questions survive short conversational lead-ins", () => {
   for (const text of [
     "So why did the cache miss", "Okay but how does hashing work",
