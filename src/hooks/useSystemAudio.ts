@@ -310,12 +310,12 @@ export function useSystemAudio() {
       recordSkipped("backpressure"); return Promise.resolve(null);
     }
 
-    const controller = new AbortController();
-    jevShadowControllersRef.current.add(controller);
     const body = buildJevShadowRequest(
       utterance, mode, callCoreRef.current.historyBefore(utterance.id).slice(-4),
       lastAnsweredRef.current?.normalizedText ?? null
     );
+    const controller = new AbortController();
+    jevShadowControllersRef.current.add(controller);
     return requestJevShadow(body, jevShadowKey, tauriFetch, controller.signal)
       .then((result) => {
         void saveCallJevShadow({
@@ -812,7 +812,9 @@ export function useSystemAudio() {
                 );
                 const superseded = decision.reason === "superseded";
                 if (utterancePersisted) {
-                  void launchJevShadowRef.current(utterance, currentAutoMode, superseded);
+                  void Promise.resolve()
+                    .then(() => launchJevShadowRef.current(utterance, currentAutoMode, superseded))
+                    .catch((error) => console.error("JEV shadow request failed:", error));
                 }
                 if (decision.action === "short_answer") {
                   latestRoutedAnswerSequenceRef.current = Math.max(
