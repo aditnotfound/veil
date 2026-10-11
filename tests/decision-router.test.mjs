@@ -66,6 +66,25 @@ test("question mode ignores answered narration and cut-off explanation fragments
   assert.equal(routeCallTurn(turn("What's this? Do the math."), "on_question").action, "short_answer");
 });
 
+test("wh-led narration stays silent while a later independent question still routes", () => {
+  for (const text of [
+    "When I merged the branch, the build passed and the tests looked fine.",
+    "When I merged the branch the build passed and the tests looked fine",
+    "What I changed was the tokenizer",
+    "How we handled caching is explained in the document",
+    "Why the result changed is still unclear",
+  ]) {
+    assert.equal(routeCallTurn(turn(text), "after_pause").action, "silence", text);
+  }
+  for (const text of [
+    "When did the build fail",
+    "When the build failed, what did you do",
+    "When the model finishes, do we validate on held-out data",
+  ]) {
+    assert.equal(routeCallTurn(turn(text), "on_question").action, "short_answer", text);
+  }
+});
+
 test("punctuation-free questions survive short conversational lead-ins", () => {
   for (const text of [
     "So why did the cache miss", "Okay but how does hashing work",
