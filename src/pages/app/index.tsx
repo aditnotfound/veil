@@ -15,7 +15,7 @@ import {
 } from "./components";
 import { useApp } from "@/hooks";
 import { useApp as useAppContext } from "@/contexts";
-import { SparklesIcon, ImageIcon } from "lucide-react";
+import { SparklesIcon, ImageIcon, ScrollTextIcon } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { ErrorBoundary } from "react-error-boundary";
 import { ErrorLayout } from "@/layouts";
@@ -39,6 +39,7 @@ const App = () => {
       safeLocalStorage.getItem(STORAGE_KEYS.USE_IMAGE_EVERY_MESSAGE) === "true"
     );
   });
+  const [prompterError, setPrompterError] = useState("");
 
   useEffect(() => {
     safeLocalStorage.setItem(STORAGE_KEYS.OVERLAY_MODE, overlayMode);
@@ -56,6 +57,16 @@ const App = () => {
       await invoke("open_dashboard");
     } catch (error) {
       console.error("Failed to open dashboard:", error);
+    }
+  };
+
+  const openPrompter = async () => {
+    try {
+      setPrompterError("");
+      await invoke("open_prompter");
+    } catch (error) {
+      console.error("Failed to open teleprompter:", error);
+      setPrompterError(`Could not open Script: ${String(error)}`);
     }
   };
 
@@ -109,6 +120,19 @@ const App = () => {
               Listen
             </button>
           </div>
+
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            title={prompterError || "Open voice-following teleprompter"}
+            onClick={() => void openPrompter()}
+            className="h-8 px-2 flex-shrink-0 text-[11px] gap-1"
+          >
+            <ScrollTextIcon className="h-3.5 w-3.5" />
+            Script
+          </Button>
+          {prompterError && <span role="alert" className="max-w-40 truncate text-[10px] text-destructive" title={prompterError}>{prompterError}</span>}
 
           {/* Use image every message */}
           <Button

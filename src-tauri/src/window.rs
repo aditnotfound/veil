@@ -89,6 +89,33 @@ pub fn open_dashboard(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn open_prompter(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("prompter") {
+        window.show().map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    let window = WebviewWindowBuilder::new(
+        &app,
+        "prompter",
+        tauri::WebviewUrl::App("/prompter".into()),
+    )
+    .title("Veil Teleprompter")
+    .inner_size(760.0, 350.0)
+    .min_inner_size(520.0, 280.0)
+    .center()
+    .resizable(true)
+    .content_protected(true)
+    .visible(false)
+    .build()
+    .map_err(|e| e.to_string())?;
+    window.show().map_err(|e| e.to_string())?;
+    window.set_always_on_top(true).map_err(|e| e.to_string())?;
+    window.set_focus().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn toggle_dashboard(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(dashboard_window) = app.get_webview_window("dashboard") {
         match dashboard_window.is_visible() {

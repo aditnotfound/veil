@@ -5,12 +5,19 @@ import { AppProvider, ThemeProvider } from "./contexts";
 import "./global.css";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import AppRoutes from "./routes";
+import Prompter from "./pages/prompter";
 
 const currentWindow = getCurrentWindow();
 const windowLabel = currentWindow.label;
 
 // Render different components based on window label
-if (windowLabel.startsWith("capture-overlay-")) {
+if (windowLabel === "prompter") {
+  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+    <React.StrictMode>
+      <ThemeProvider><Prompter /></ThemeProvider>
+    </React.StrictMode>
+  );
+} else if (windowLabel.startsWith("capture-overlay-")) {
   const monitorIndex = parseInt(windowLabel.split("-")[2], 10) || 0;
   // Render overlay without providers
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
