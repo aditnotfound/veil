@@ -5,6 +5,7 @@ type SocketFactory = (url: string, protocols: string[]) => SocketLike;
 type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
 type PendingEvent = { type: "audio"; audio: string; bytes: number } | { type: "commit" };
 type TranscriptPart = { text: string; completed: boolean };
+type LiveCaptionOptions = { delay?: "minimal" | "low" | "medium" | "high" | "xhigh" };
 
 const TARGET_RATE = 24_000;
 const MAX_PENDING_BYTES = 512 * 1024;
@@ -76,6 +77,7 @@ export class OpenAILiveCaptions {
   private items = new Map<string, TranscriptPart>();
   private earlyParts = new Map<string, TranscriptPart>();
   private hiddenItemIds = new Set<string>();
+  private readonly options: LiveCaptionOptions;
 
   constructor(
     apiKey: string,
@@ -83,13 +85,15 @@ export class OpenAILiveCaptions {
     onCaption: (text: string) => void,
     onStatus: (status: CaptionStatus) => void,
     fetcher: Fetcher = fetch,
-    socketFactory: SocketFactory = (url, protocols) => new WebSocket(url, protocols)
+    socketFactory: SocketFactory = (url, protocols) => new WebSocket(url, protocols),
+    options: LiveCaptionOptions = {}
   ) {
     if (!apiKey) throw new Error("OpenAI live captions require an API key");
     this.onCaption = onCaption;
     this.onStatus = onStatus;
     this.fetcher = fetcher;
     this.socketFactory = socketFactory;
+    this.options = options;
     this.resampler = new Pcm16Resampler(sampleRate);
     this.onStatus("connecting");
     this.connectDeadline = setTimeout(() => this.fail(), 12_000);
@@ -106,7 +110,7 @@ export class OpenAILiveCaptions {
             type: "transcription",
             audio: { input: {
               format: { type: "audio/pcm", rate: TARGET_RATE },
-              transcription: { model: "gpt-live-transcribe" },
+              transcription: { model: "gpt-live-transcribe", ...this.options },
               turn_detection: null,
             } },
           },
@@ -128,7 +132,7 @@ export class OpenAILiveCaptions {
           type: "transcription",
           audio: { input: {
             format: { type: "audio/pcm", rate: TARGET_RATE },
-            transcription: { model: "gpt-live-transcribe" },
+            transcription: { model: "gpt-live-transcribe", ...this.options },
             turn_detection: null,
           } },
         } }));
@@ -164,6 +168,7 @@ export class OpenAILiveCaptions {
   resetDisplay(): void {
     for (const commit of this.pendingCommits) commit.visible = false;
     for (const id of this.itemOrder) this.hiddenItemIds.add(id);
+    for (const id of this.earlyParts.keys()) this.hiddenItemIds.add(id);
     // Only recent completed items can still deliver late provider events.
     while (this.hiddenItemIds.size > 128) {
       this.hiddenItemIds.delete(this.hiddenItemIds.values().next().value!);
@@ -219,7 +224,8 @@ export class OpenAILiveCaptions {
       if (event.type === "input_audio_buffer.committed" &&
         typeof event.item_id === "string") {
         const commit = this.pendingCommits.shift();
-        if (!commit?.visible) {
+        if (!commit?.visible || this.hiddenItemIds.has(event.item_id)) {
+          this.hiddenItemIds.add(event.item_id);
           this.earlyParts.delete(event.item_id);
           return;
         }
@@ -247,10 +253,11 @@ export class OpenAILiveCaptions {
         if (this.items.has(event.item_id)) {
           this.items.set(event.item_id, part);
           this.emitCaption();
-        } else if (this.pendingCommits.length > 0 &&
-          (this.earlyParts.has(event.item_id) || this.earlyParts.size < 16)) {
-          // A transcript event can race its commit acknowledgment.
+        } else if (this.ready && (this.earlyParts.has(event.item_id) || this.earlyParts.size < 16)) {
+          // gpt-live-transcribe emits words BEFORE commit, while the person speaks.
+          // Display them immediately; the acknowledgment later fixes turn order.
           this.earlyParts.set(event.item_id, part);
+          this.emitCaption();
         }
       }
     } catch {
@@ -259,8 +266,16 @@ export class OpenAILiveCaptions {
   }
 
   private emitCaption() {
+    // Bound memory during long reading/call sessions, not just the emitted string.
+    while (this.itemOrder.length > 64 && this.items.get(this.itemOrder[0])?.completed) {
+      const id = this.itemOrder.shift()!;
+      this.items.delete(id);
+      this.hiddenItemIds.add(id);
+    }
+    while (this.hiddenItemIds.size > 128) this.hiddenItemIds.delete(this.hiddenItemIds.values().next().value!);
     // Keep interim display bounded; saved batch turns hold the full call history.
-    const text = this.itemOrder.map((id) => this.items.get(id)?.text ?? "")
+    const text = [...this.itemOrder.map((id) => this.items.get(id)?.text ?? ""),
+      ...Array.from(this.earlyParts.values(), (part) => part.text)]
       .filter(Boolean).join(" ").trim().slice(-12000);
     if (text) this.onCaption(text);
   }

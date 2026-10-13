@@ -4,14 +4,15 @@ import { floatArrayToWav } from "@/lib/utils";
 
 type Props = {
   deviceId: string;
-  onSegment: (audio: Blob, startedAt: number) => void;
+  onSegment?: (audio: Blob, startedAt: number) => void;
+  onSpeechEnd?: () => void;
   onSpeechStart: () => void;
   onFrame?: (samples: Float32Array) => void;
   onError: (message: string) => void;
 };
 
 /** Mounted only while Listen is capturing and its microphone source is enabled. */
-export function CallMicCapture({ deviceId, onSegment, onSpeechStart, onFrame, onError }: Props) {
+export function CallMicCapture({ deviceId, onSegment, onSpeechStart, onSpeechEnd, onFrame, onError }: Props) {
   const speechStartedAt = useRef(0);
   const vad = useMicVAD({
     startOnLoad: true,
@@ -28,8 +29,10 @@ export function CallMicCapture({ deviceId, onSegment, onSpeechStart, onFrame, on
     onSpeechEnd: (samples) => {
       const startedAt = speechStartedAt.current || Date.now();
       speechStartedAt.current = 0;
-      onSegment(floatArrayToWav(samples, 16000, "wav"), startedAt);
+      onSpeechEnd?.();
+      if (onSegment) onSegment(floatArrayToWav(samples, 16000, "wav"), startedAt);
     },
+    onVADMisfire: () => { speechStartedAt.current = 0; onSpeechEnd?.(); },
   });
 
   useEffect(() => {

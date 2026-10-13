@@ -119,3 +119,41 @@ test("OpenAI session errors stop streaming and leave batch transcription availab
   assert.deepEqual(statuses, ["connecting", "fallback"]);
   assert.equal(stream.sendPcm(pcm([1, 2])), false);
 });
+
+test("live words are visible before any commit and survive finalization without duplication", async () => {
+  const captions = [];
+  const sent = [];
+  let config;
+  const socket = {
+    readyState: 1, bufferedAmount: 0, onopen: null, onmessage: null,
+    onerror: null, onclose: null, send(value) { sent.push(JSON.parse(value)); }, close() { this.readyState = 3; },
+  };
+  const stream = new OpenAILiveCaptions("private-key", 16000,
+    (text) => captions.push(text), () => {},
+    async (_url, init) => {
+      config = JSON.parse(init.body);
+      return new Response(JSON.stringify({ value: "ek_short_lived" }), { status: 200 });
+    }, () => socket, { delay: "minimal" });
+  await new Promise((resolve) => setImmediate(resolve));
+  socket.onopen();
+  const receive = (event) => socket.onmessage({ data: JSON.stringify(event) });
+  receive({ type: "session.updated" });
+  assert.equal(config.session.audio.input.transcription.delay, "minimal");
+  assert.equal(sent[0].session.audio.input.transcription.delay, "minimal");
+  receive({ type: "conversation.item.input_audio_transcription.delta", item_id: "live", delta: "Words while" });
+  assert.equal(captions.at(-1), "Words while");
+  assert.equal(sent.some((event) => event.type === "input_audio_buffer.commit"), false);
+  receive({ type: "conversation.item.input_audio_transcription.delta", item_id: "live", delta: " speaking" });
+  assert.equal(captions.at(-1), "Words while speaking");
+  stream.commit();
+  receive({ type: "input_audio_buffer.committed", item_id: "live" });
+  receive({ type: "conversation.item.input_audio_transcription.completed", item_id: "live", transcript: "Words while speaking." });
+  assert.equal(captions.at(-1), "Words while speaking.");
+  receive({ type: "conversation.item.input_audio_transcription.delta", item_id: "next", delta: "Next" });
+  assert.equal(captions.at(-1), "Words while speaking. Next");
+  stream.resetDisplay();
+  const count = captions.length;
+  receive({ type: "conversation.item.input_audio_transcription.delta", item_id: "next", delta: " late" });
+  assert.equal(captions.length, count);
+  stream.close();
+});
