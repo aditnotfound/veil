@@ -57,11 +57,10 @@ export const Input = ({
   cancel,
   scrollAreaRef,
   inputRef,
-  isHidden,
   keepEngaged,
   setKeepEngaged,
   submit,
-}: UseCompletionReturn & { isHidden: boolean }) => {
+}: UseCompletionReturn) => {
   const [historyView, setHistoryView] = useState<"latest" | "all">("latest");
 
   const lastUserMessage = [...conversationHistory]
@@ -110,7 +109,7 @@ export const Input = ({
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={handleKeyPress}
               onPaste={handlePaste}
-              disabled={isLoading || isHidden}
+              disabled={isLoading}
               className={`${
                 currentConversationId && conversationHistory.length > 0
                   ? "pr-14"

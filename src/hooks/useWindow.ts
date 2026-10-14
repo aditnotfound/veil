@@ -2,12 +2,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useCallback, useEffect } from "react";
 
-// Helper function to check if any popover is open in the DOM
+// Radix keeps a popper wrapper mounted during close animations. Only an
+// actually open, visible popover needs the expanded native hit area.
 const isAnyPopoverOpen = (): boolean => {
-  const popoverContents = document.querySelectorAll(
-    "[data-radix-popper-content-wrapper]"
-  );
-  return popoverContents.length > 0;
+  return Array.from(
+    document.querySelectorAll<HTMLElement>(
+      '[data-radix-popper-content-wrapper] [data-state="open"]'
+    )
+  ).some((content) => content.getClientRects().length > 0);
 };
 
 export const useWindowResize = () => {

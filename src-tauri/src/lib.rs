@@ -47,9 +47,6 @@ pub fn run() {
         )
         .manage(AudioState::default())
         .manage(CaptureState::default())
-        .manage(shortcuts::WindowVisibility {
-            is_hidden: Mutex::new(false),
-        })
         .manage(shortcuts::RegisteredShortcuts::default())
         .manage(shortcuts::LicenseState::default())
         .manage(shortcuts::MoveWindowState::default())

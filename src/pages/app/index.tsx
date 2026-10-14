@@ -26,7 +26,7 @@ import { cn } from "@/lib/utils";
 type OverlayMode = "ask" | "listen";
 
 const App = () => {
-  const { isHidden, systemAudio } = useApp();
+  const { systemAudio } = useApp();
   const { customizable } = useAppContext();
   const platform = getPlatform();
 
@@ -89,9 +89,7 @@ const App = () => {
       }}
     >
       <div
-        className={`w-screen h-screen flex overflow-hidden justify-center items-start ${
-          isHidden ? "hidden pointer-events-none" : ""
-        }`}
+        className="w-screen h-screen flex overflow-hidden justify-center items-start"
       >
         <Card className="w-full flex flex-row items-center gap-2 p-2">
           {/* Ask | Listen mode toggle */}
@@ -233,7 +231,7 @@ const App = () => {
                 : "hidden w-full fade-out transition-all duration-300"
             }`}
           >
-            <Completion isHidden={isHidden} showAudio={showAskInput} />
+            <Completion showAudio={showAskInput} />
             <Button
               size={"icon"}
               className="cursor-pointer"
