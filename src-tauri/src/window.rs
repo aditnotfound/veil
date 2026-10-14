@@ -89,6 +89,20 @@ pub fn open_dashboard(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn open_knowledge(app: tauri::AppHandle) -> Result<(), String> {
+    show_dashboard_window(&app)?;
+    let window = app.get_webview_window("dashboard").ok_or("Dashboard unavailable")?;
+    let mut url = window.url().map_err(|e| e.to_string())?;
+    if url.path() != "/knowledge" {
+        url.set_path("/knowledge");
+        url.set_query(None);
+        url.set_fragment(None);
+        window.navigate(url).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn open_prompter(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("prompter") {
         window.show().map_err(|e| e.to_string())?;

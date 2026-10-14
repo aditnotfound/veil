@@ -15,7 +15,7 @@ import {
 } from "./components";
 import { useApp } from "@/hooks";
 import { useApp as useAppContext } from "@/contexts";
-import { SparklesIcon, ImageIcon, ScrollTextIcon } from "lucide-react";
+import { SparklesIcon, ImageIcon, ScrollTextIcon, BookOpenIcon } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { ErrorBoundary } from "react-error-boundary";
 import { ErrorLayout } from "@/layouts";
@@ -40,6 +40,7 @@ const App = () => {
     );
   });
   const [prompterError, setPrompterError] = useState("");
+  const [prepError, setPrepError] = useState("");
 
   useEffect(() => {
     safeLocalStorage.setItem(STORAGE_KEYS.OVERLAY_MODE, overlayMode);
@@ -121,6 +122,13 @@ const App = () => {
             </button>
           </div>
 
+          <Button type="button" size="sm" variant="outline"
+            title={prepError || "Prepare your background and session context"}
+            className="h-8 px-2 flex-shrink-0 text-[11px] gap-1"
+            onClick={() => { setPrepError(""); void invoke("open_knowledge").catch(() => setPrepError("Could not open Prep. Open Knowledge from the dashboard.")); }}>
+            <BookOpenIcon className="h-3.5 w-3.5" />Prep
+          </Button>
+          {prepError && <span role="alert" className="text-[10px] text-destructive">{prepError}</span>}
           <Button
             type="button"
             size="sm"

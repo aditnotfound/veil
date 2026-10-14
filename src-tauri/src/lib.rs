@@ -138,6 +138,7 @@ pub fn run() {
             chatgpt_plan::chatgpt_plan_response,
             window::set_window_height,
             window::open_dashboard,
+            window::open_knowledge,
             window::open_prompter,
             window::toggle_dashboard,
             window::move_window,

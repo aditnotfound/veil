@@ -109,5 +109,11 @@ pub fn migrations() -> Vec<Migration> {
             sql: include_str!("migrations/call-answer-attempts.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 18,
+            description: "prepare_personal_knowledge_and_session_context",
+            sql: include_str!("migrations/knowledge-preparation.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }

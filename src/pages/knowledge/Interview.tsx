@@ -276,7 +276,7 @@ If the answer is already solid, reply with exactly: NO_FOLLOWUP`,
         kind: "note",
         text: answer,
         tags: ["profile", topic.tag],
-        apiKey: selectedAIProvider.provider === "openai" ? apiKey : "",
+        apiKey: "", // Profile answers stay locally indexed; semantic indexing is opt-in in Library.
       });
 
       let topicsSoFar: string[] = [];

@@ -8,6 +8,8 @@ export interface KnowledgeSource {
   raw_text: string;
   created_at: number;
   updated_at: number;
+  enabled: boolean;
+  pinned: boolean;
 }
 
 export interface KnowledgeChunk {

@@ -4,7 +4,8 @@ const EMBED_MODEL = "text-embedding-3-small";
 
 export async function embedTexts(
   apiKey: string,
-  texts: string[]
+  texts: string[],
+  timeoutMs = 15000
 ): Promise<number[][]> {
   if (!apiKey?.trim()) {
     throw new Error("OpenAI API key required for knowledge embeddings");
@@ -13,6 +14,7 @@ export async function embedTexts(
 
   const response = await tauriFetch("https://api.openai.com/v1/embeddings", {
     method: "POST",
+    signal: AbortSignal.timeout(timeoutMs),
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",

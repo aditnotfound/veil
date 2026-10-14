@@ -4,3 +4,5 @@ export * from "./embed";
 export * from "./store";
 export * from "./retrieve";
 export * from "./extract";
+export * from "./preparation";
+export * from "./preparation-store";

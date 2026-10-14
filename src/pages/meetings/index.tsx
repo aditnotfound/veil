@@ -1,3 +1,4 @@
+import { getSessionPreparation } from "@/lib/knowledge/preparation-store";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Button,
@@ -84,6 +85,7 @@ const Meetings = () => {
   const [formSuggestions, setFormSuggestions] = useState("");
   const [formLedger, setFormLedger] = useState("");
   const [formPlans, setFormPlans] = useState("");
+  const [startingContext, setStartingContext] = useState("");
   const [sourceCallSessionId, setSourceCallSessionId] = useState<string | null>(null);
   const [sourceUtterances, setSourceUtterances] = useState<FinalUtterance[]>([]);
   const [sourceSuggestions, setSourceSuggestions] = useState<StoredCallSuggestion[]>([]);
@@ -133,6 +135,7 @@ const Meetings = () => {
       setFormLedger("");
       setFormPlans("");
       setSourceCallSessionId(null);
+      setStartingContext("");
       setSourceUtterances([]);
       setSourceSuggestions([]);
       setSourceRevisions([]);
@@ -152,6 +155,7 @@ const Meetings = () => {
     setFormLedger("");
     setFormPlans("");
     setSourceCallSessionId(null);
+    setStartingContext("");
     setSourceUtterances([]);
     setSourceSuggestions([]);
     setSourceRevisions([]);
@@ -167,6 +171,7 @@ const Meetings = () => {
     setFormLedger("");
     setFormPlans("");
     setSourceCallSessionId(null);
+    setStartingContext("");
     setSourceUtterances([]);
     setSourceSuggestions([]);
     setSourceRevisions([]);
@@ -184,6 +189,7 @@ const Meetings = () => {
     setFormLedger("");
     setFormPlans("");
     setSourceCallSessionId(null);
+    setStartingContext("");
     setSourceUtterances([]);
     setSourceSuggestions([]);
     setSourceRevisions([]);
@@ -199,7 +205,7 @@ const Meetings = () => {
       const created = await createMeeting({
         title: formTitle.trim() || "Untitled meeting",
         transcript: formTranscript,
-        notes: formNotes,
+        notes: [formNotes, startingContext && `## Starting background\n\n${startingContext}`].filter(Boolean).join("\n\n"),
         summary: formSummary,
       });
       setMeetings((prev) => [created, ...prev]);
@@ -215,12 +221,13 @@ const Meetings = () => {
   const handleOpenCallSession = async (session: StoredCallSession) => {
     try {
       setError(null);
-      const [utterances, suggestions, ledger, plans, revisions] = await Promise.all([
+      const [utterances, suggestions, ledger, plans, revisions, preparation] = await Promise.all([
         getCallUtterances(session.id),
         getCallSuggestions(session.id),
         getCallSessionLedger(session.id),
         getCallSessionPlans(session.id),
         getCallUtteranceRevisions(session.id),
+        getSessionPreparation(session.id),
       ]);
       setSelectedId(null);
       setIsCreating(true);
@@ -241,6 +248,7 @@ const Meetings = () => {
         (timestamp) => moment(timestamp).format("h:mm:ss A")
       ));
       setSourceCallSessionId(session.id);
+      setStartingContext(preparation);
       setSourceUtterances(utterances);
       setSourceSuggestions(suggestions);
       setSourceRevisions(revisions);
@@ -405,6 +413,7 @@ const Meetings = () => {
         history,
         historyOrder: "chronological",
         knowledgeMode: "local",
+        preparedContext: startingContext,
         responseProfile: suggestion.tier === "deep" ? "deep" : "default",
         userMessage: turn.text,
         imagesBase64: [],
@@ -498,6 +507,7 @@ const Meetings = () => {
         systemPrompt:
           systemPrompt ||
           "You summarize meeting transcripts clearly and concisely.",
+        preparedContext: sourceCallSessionId ? startingContext : "",
         userMessage: `Summarize this meeting transcript. Include key topics, decisions, and action items.\n\n---\n${formTranscript}`,
         signal: abortRef.current.signal,
       })) {
@@ -524,6 +534,10 @@ const Meetings = () => {
   const handleExport = () => {
     const title = formTitle.trim() || "meeting";
     const markdown = `# ${title}
+
+## Starting background
+
+${startingContext || "_No saved starting background_"}
 
 ## Transcript
 
@@ -680,6 +694,12 @@ ${formNotes || "_No notes_"}
               className="focus-visible:ring-0 focus-visible:ring-offset-0"
             />
           </div>
+
+          {sourceCallSessionId && <details className="rounded-lg border p-3">
+            <summary className="cursor-pointer text-sm font-medium">Background at session start</summary>
+            <p className="my-2 text-xs text-muted-foreground">This is the saved starting brief. Library sources remain editable; turning personal knowledge off excludes this background from new answers.</p>
+            <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs">{startingContext || "No background was saved for this session."}</pre>
+          </details>}
 
           <div className="space-y-2">
             <Label htmlFor="meeting-transcript">Transcript</Label>

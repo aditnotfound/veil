@@ -1,3 +1,4 @@
+import { captureSessionPreparation } from "@/lib/knowledge/preparation-store";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useWindowResize, useGlobalShortcuts } from ".";
 import { invoke } from "@tauri-apps/api/core";
@@ -223,6 +224,7 @@ export function useSystemAudio() {
     : deepgramLiveKey ? "deepgram" : null;
   const liveCaptionKey = openaiLiveKey || deepgramLiveKey;
   const callCoreRef = useRef(new CallSessionCore());
+  const preparedContextRef = useRef("");
   const autoResponseModeRef = useRef(autoResponseMode);
   const attachedScreenshotRef = useRef<string | null>(null);
   const setAttachedScreenshot = useCallback((image: string | null) => {
@@ -1255,6 +1257,7 @@ export function useSystemAudio() {
             history: historyWithEvidence,
             historyOrder: "chronological",
             knowledgeMode: "local",
+            preparedContext: preparedContextRef.current,
             responseProfile,
             fastOpenAIAnswers,
             onKnowledgeError: () => {
@@ -1480,6 +1483,7 @@ export function useSystemAudio() {
         history,
         historyOrder: "chronological",
         knowledgeMode: "local",
+        preparedContext: preparedContextRef.current,
         responseProfile: "deep",
         fastOpenAIAnswers,
         onKnowledgeError: () => {
@@ -1662,6 +1666,7 @@ export function useSystemAudio() {
       const conversationId = generateConversationId("sysaudio");
       await createCallSession(conversationId, Date.now());
       newSessionId = conversationId;
+      preparedContextRef.current = await captureSessionPreparation(conversationId);
       callCoreRef.current.start(conversationId);
       sttSessionControllerRef.current.abort();
       sttSessionControllerRef.current = new AbortController();
@@ -1948,6 +1953,7 @@ export function useSystemAudio() {
       if (priorSessionId) await endCallSession(priorSessionId, Date.now());
       if (capturing) {
         await createCallSession(nextId, Date.now());
+        preparedContextRef.current = await captureSessionPreparation(nextId);
         callCoreRef.current.start(nextId);
         sttSessionControllerRef.current = new AbortController();
         if (sessionPlannerEnabled) sessionPlannerRef.current.start(nextId);
@@ -1965,7 +1971,10 @@ export function useSystemAudio() {
       }
     } catch (err) {
       console.error("Failed to start new call session:", err);
-      setError("New call session could not be saved locally.");
+      setError("New call session or its background could not be saved locally. Listen has stopped; please try again.");
+      setCapturing(false);
+      await invoke("stop_system_audio_capture").catch(console.error);
+      await endCallSession(nextId, Date.now()).catch(console.error);
       return;
     }
     setConversation({

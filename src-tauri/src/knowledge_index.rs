@@ -171,6 +171,8 @@ mod tests {
             .execute(&mut connection)
             .await
             .unwrap();
+        sqlx::raw_sql(include_str!("db/migrations/knowledge-preparation.sql"))
+            .execute(&mut connection).await.unwrap();
         connection
     }
 
@@ -233,11 +235,17 @@ mod tests {
         assert_eq!(count_match(&mut connection, "calibration").await, 1);
         assert_eq!(count_match(&mut connection, "revision").await, 0);
 
+        sqlx::query("UPDATE knowledge_sources SET pinned=1, enabled=0 WHERE id='source-1'")
+            .execute(&mut connection).await.unwrap();
         commit_on_connection(&mut connection, source(true, "revision", &["chunk-new"]))
             .await
             .unwrap();
         assert_eq!(count_match(&mut connection, "calibration").await, 0);
         assert_eq!(count_match(&mut connection, "revision").await, 1);
+        let flags = sqlx::query("SELECT pinned, enabled FROM knowledge_sources WHERE id='source-1'")
+            .fetch_one(&mut connection).await.unwrap();
+        assert_eq!(flags.get::<i64, _>("pinned"), 1);
+        assert_eq!(flags.get::<i64, _>("enabled"), 0);
     }
 
     #[tokio::test]

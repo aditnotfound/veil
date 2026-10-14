@@ -1,8 +1,9 @@
-import { getDatabase } from "@/lib/database";
+import { getDatabase } from "@/lib/database/config";
 import { invoke } from "@tauri-apps/api/core";
 import type { KnowledgeSource, KnowledgeSourceKind } from "./types";
 import { chunkText } from "./chunk";
 import { embedTexts } from "./embed";
+import { notifyKnowledgeChanged } from "./preparation-store";
 
 function newId(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -28,18 +29,34 @@ export async function listKnowledgeSources(): Promise<KnowledgeSource[]> {
       raw_text: string;
       created_at: number;
       updated_at: number;
+      enabled: number;
+      pinned: number;
     }[]
   >("SELECT * FROM knowledge_sources ORDER BY updated_at DESC");
 
   return rows.map((r) => ({
     ...r,
     tags: parseTags(r.tags),
+    enabled: r.enabled === 1,
+    pinned: r.pinned === 1,
   }));
 }
 
 export async function deleteKnowledgeSource(id: string): Promise<void> {
   await getDatabase(); // Ensure migrations completed before the native transaction.
   await invoke("delete_knowledge_index", { sourceId: id });
+  notifyKnowledgeChanged();
+}
+
+export async function setKnowledgeSourceFlag(id: string, flag: "enabled" | "pinned", value: boolean): Promise<void> {
+  const db = await getDatabase();
+  if (flag !== "enabled" && flag !== "pinned") throw new Error("Unknown source setting");
+  // Enforce the three-pin cap in the same SQL statement, including across windows.
+  const result = await db.execute(flag === "pinned" && value
+    ? `UPDATE knowledge_sources SET pinned = 1 WHERE id = ? AND (pinned = 1 OR (SELECT COUNT(*) FROM knowledge_sources WHERE pinned = 1) < 3)`
+    : `UPDATE knowledge_sources SET ${flag} = ? WHERE id = ?`, flag === "pinned" && value ? [id] : [Number(value), id]);
+  if (!result.rowsAffected) throw new Error(flag === "pinned" && value ? "You can pin up to 3 references. Unpin one first." : "Source no longer exists.");
+  notifyKnowledgeChanged();
 }
 
 export async function ingestKnowledgeSource(params: {
@@ -92,6 +109,7 @@ export async function ingestKnowledgeSource(params: {
       chunks: prepared,
     },
   });
+  notifyKnowledgeChanged();
   return id;
 }
 
@@ -103,6 +121,8 @@ export async function getAllChunksWithMeta(): Promise<
     embedding: number[];
     tags: string[];
     title: string;
+    updated_at: number;
+    pinned: number;
   }[]
 > {
   const db = await getDatabase();
@@ -114,11 +134,13 @@ export async function getAllChunksWithMeta(): Promise<
       embedding: string;
       tags: string;
       title: string;
+      updated_at: number;
+      pinned: number;
     }[]
   >(
-    `SELECT c.id, c.source_id, c.content, c.embedding, s.tags, s.title
+    `SELECT c.id, c.source_id, c.content, c.embedding, s.tags, s.title, s.updated_at, s.pinned
      FROM knowledge_chunks c
-     JOIN knowledge_sources s ON s.id = c.source_id`
+     JOIN knowledge_sources s ON s.id = c.source_id WHERE s.enabled = 1`
   );
 
   return rows.map((r) => ({
@@ -134,5 +156,7 @@ export async function getAllChunksWithMeta(): Promise<
     })(),
     tags: parseTags(r.tags),
     title: r.title,
+    updated_at: r.updated_at,
+    pinned: r.pinned,
   }));
 }
