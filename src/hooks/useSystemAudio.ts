@@ -40,11 +40,12 @@ import { buildJevShadowRequest, requestJevShadow, type JevShadowResult } from "@
 import { transcribeWithRetry, timeoutForWav } from "@/lib/call/transcribe-with-retry";
 import { DeepgramLiveCaptions, pcm16FromBase64, pcm16FromFloat, type CaptionStatus } from "@/lib/call/deepgram-live-captions";
 import { OpenAILiveCaptions } from "@/lib/call/openai-live-captions";
-import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, selectCallAnswerPlan, deepCallPrompt, shouldCancelAnswerForDecision, MAX_LIVE_GUIDANCE_CHARS, type AnsweredTurn, type AutoResponseMode, type CallDecision } from "@/lib/call/decision-router";
+import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, selectCallAnswerPlan, deepCallPrompt, shouldCancelAnswerForDecision, shouldSkipDelayedDecision, MAX_LIVE_GUIDANCE_CHARS, type AnsweredTurn, type AutoResponseMode, type CallDecision } from "@/lib/call/decision-router";
 import { formatSessionLedgerEvidence, selectSessionLedgerEntries } from "@/lib/call/session-ledger";
 import { buildSessionPlannerSnapshot, formatSessionPlanEvidence, parseSessionPlan, SESSION_PLANNER_MILESTONE, SESSION_PLANNER_PROMPT, SessionPlannerCoordinator, type ActiveSessionPlan } from "@/lib/call/session-planner";
 import { selectedModelName, withModelOverride } from "@/lib/call/deep-provider";
 import { previousSuggestionContext } from "@/lib/call/prompt-evidence";
+import { persistCallDerivedData } from "@/lib/call/persist-derived";
 export type { AutoResponseMode } from "@/lib/call/decision-router";
 
 type LiveCaptionStream = DeepgramLiveCaptions | OpenAILiveCaptions;
@@ -802,10 +803,6 @@ export function useSystemAudio() {
                 let utterancePersisted = true;
                 try {
                   await appendCallUtterance(utterance);
-                  await appendCallSessionLedger(utterance).catch((ledgerError) => {
-                    console.error("Failed to update candidate session ledger:", ledgerError);
-                    setError("Transcript saved, but candidate session memory could not be updated.");
-                  });
                 } catch (persistError) {
                   utterancePersisted = false;
                   console.error("Failed to save call utterance:", persistError);
@@ -816,10 +813,6 @@ export function useSystemAudio() {
                   timing.status = "canceled";
                   return;
                 }
-                const latestSystemSequence = sequence >= latestCompletedSystemSequenceRef.current;
-                latestCompletedSystemSequenceRef.current = Math.max(
-                  latestCompletedSystemSequenceRef.current, sequence
-                );
                 const currentAutoMode = autoResponseModeRef.current;
                 const decision: CallDecision = routeSequencedSystemTurn(
                   utterance, currentAutoMode, lastAnsweredRef.current,
@@ -837,11 +830,29 @@ export function useSystemAudio() {
                   );
                 }
                 if (utterancePersisted) {
-                  await saveCallTurnDecision(sessionId, decision, currentAutoMode, Date.now())
-                    .catch((err) => console.error("Failed to save call decision:", err));
+                  const [ledgerResult, decisionResult] = await persistCallDerivedData(
+                    () => appendCallSessionLedger(utterance),
+                    () => saveCallTurnDecision(sessionId, decision, currentAutoMode, Date.now()),
+                  );
+                  if (callCoreRef.current.activeSessionId !== sessionId) {
+                    timing.status = "canceled";
+                    return;
+                  }
+                  if (ledgerResult.status === "rejected") {
+                    console.error("Failed to update candidate session ledger:", ledgerResult.reason);
+                    setError("Transcript saved, but candidate session memory could not be updated.");
+                  }
+                  if (decisionResult.status === "rejected") {
+                    console.error("Failed to save call decision:", decisionResult.reason);
+                  }
                   launchSessionPlannerRef.current(utterance);
                 }
-                if (superseded) return;
+                // A newer question may have completed while local writes were pending.
+                if (shouldSkipDelayedDecision(decision, sequence, latestRoutedAnswerSequenceRef.current)) return;
+                const latestSystemSequence = sequence >= latestCompletedSystemSequenceRef.current;
+                latestCompletedSystemSequenceRef.current = Math.max(
+                  latestCompletedSystemSequenceRef.current, sequence
+                );
                 if (shouldCancelAnswerForDecision(decision)) {
                   cancelAnswerForSpeech();
                 }

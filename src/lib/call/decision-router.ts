@@ -15,6 +15,12 @@ export function shouldCancelAnswerForDecision(decision: CallDecision): boolean {
   return decision.action === "short_answer";
 }
 
+/** Recheck after asynchronous persistence; a newer question may have arrived. */
+export function shouldSkipDelayedDecision(decision: CallDecision, sequence: number, latestAnswerSequence: number): boolean {
+  return decision.reason === "superseded" ||
+    (decision.action === "short_answer" && sequence < latestAnswerSequence);
+}
+
 export interface AnsweredTurn {
   normalizedText: string;
   endedAt: number;

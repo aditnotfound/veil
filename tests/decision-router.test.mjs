@@ -1,6 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, callCardPrompt, deepCallPrompt, selectCallAnswerPlan, shouldCancelAnswerForDecision, MAX_LIVE_GUIDANCE_CHARS } from "../src/lib/call/decision-router.ts";
+import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, callCardPrompt, deepCallPrompt, selectCallAnswerPlan, shouldCancelAnswerForDecision, shouldSkipDelayedDecision, MAX_LIVE_GUIDANCE_CHARS } from "../src/lib/call/decision-router.ts";
+
+test("a newer question arriving during persistence supersedes the delayed answer", () => {
+  const older = routeCallTurn(turn("Why is the training set leaking?"), "after_pause");
+  assert.equal(shouldSkipDelayedDecision(older, 1, 1), false);
+  assert.equal(shouldSkipDelayedDecision(older, 1, 2), true);
+  const ordinary = routeCallTurn(turn("We can review the notes tomorrow"), "after_pause");
+  assert.equal(shouldSkipDelayedDecision(ordinary, 1, 2), false);
+});
 
 test("proofs and multistep math use a careful profile while ordinary questions stay fast", () => {
   for (const text of ["Prove that the estimator is unbiased", "Find the remainder of 7 to the power 2026 modulo 1000", "What is the remainder when seven to the power 2026 is divided by one thousand?", "How many three digit numbers have strictly increasing digits that sum to twelve?", "Derive the gradient of cross entropy", "Solve this AIME problem"]) {

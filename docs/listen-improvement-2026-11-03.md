@@ -89,6 +89,15 @@ requires matching completion events to committed input items by `item_id`; their
 completion order across turns is not guaranteed. End-to-end event ordering and
 latency have not yet been measured on the packaged app.
 
+The automatic path now saves the utterance first, then starts its independent
+ledger and routing-record writes together instead of serially. Both writes are
+settled before the answer starts; ledger and decision errors remain separate.
+The session and newer routed questions are checked again after the writes so a
+delayed older decision cannot replace a newer answer. A controlled asynchronous
+test verifies overlap and failure isolation, and router tests cover the delayed
+decision guard. SQLite contention may reduce or erase the savings; actual
+question-to-useful-card latency remains unmeasured on this revision.
+
 ## Remaining goal work
 
 - Evaluate separate realistic cases after freezing the development changes.
