@@ -98,6 +98,22 @@ test verifies overlap and failure isolation, and router tests cover the delayed
 decision guard. SQLite contention may reduce or erase the savings; actual
 question-to-useful-card latency remains unmeasured on this revision.
 
+## Local knowledge retrieval diagnostic
+
+The synthetic 12-target lexical benchmark ran at 100, 1,000 and 10,000 chunks.
+All exact-anchor queries returned their target in the top seven; none of the
+paraphrase-only queries did. At 10,000 chunks the first-pass p95 for exact
+queries was 0.68 ms, while the paraphrase-only p95 was 36.56 ms. These times are
+SQLite query execution only, not total retrieval or call response time. The corpus
+is small and artificially constructed; results are not real-user recall estimates.
+
+Short followups with pronouns or omitted subjects now augment their local
+knowledge query with up to two earlier finalized spoken turns. The current user
+message is unchanged. An integration test exercises the actual FTS index and
+finds a synthetic topic through earlier context; other questions retain their
+original query. This is lexical context expansion, not semantic retrieval: the
+paraphrase-only gap and relevance in real conversations remain unverified.
+
 ## Remaining goal work
 
 - Evaluate separate realistic cases after freezing the development changes.

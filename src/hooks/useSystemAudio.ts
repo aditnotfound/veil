@@ -46,6 +46,7 @@ import { buildSessionPlannerSnapshot, formatSessionPlanEvidence, parseSessionPla
 import { selectedModelName, withModelOverride } from "@/lib/call/deep-provider";
 import { previousSuggestionContext } from "@/lib/call/prompt-evidence";
 import { persistCallDerivedData } from "@/lib/call/persist-derived";
+import { callKnowledgeQuery } from "@/lib/call/knowledge-query";
 export type { AutoResponseMode } from "@/lib/call/decision-router";
 
 type LiveCaptionStream = DeepgramLiveCaptions | OpenAILiveCaptions;
@@ -1285,6 +1286,7 @@ export function useSystemAudio() {
               if (job.isCurrent()) setError("Personal knowledge could not be searched locally.");
             },
             userMessage: transcription,
+            knowledgeQuery: callKnowledgeQuery(transcription, previousMessages),
             imagesBase64: requestScreenshot ? [requestScreenshot] : [],
             signal: job.signal,
           })) {

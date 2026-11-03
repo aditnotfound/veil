@@ -1,0 +1,85 @@
+{
+  "benchmark": "veil-local-fts5-v1",
+  "corpus": "deterministic synthetic; 12 labeled targets plus distractors",
+  "latency_scope": "SQLite query execution only; first pass and warmed repeated queries reported separately",
+  "limitations": [
+    "Lexical anchors are controlled and do not represent real user documents.",
+    "Paraphrase-only recall is diagnostic; dense retrieval and mixed ranking are outside this benchmark.",
+    "No knowledge focus-tag filter is active in the benchmark.",
+    "Results describe this machine and SQLite build, not all packaged target devices."
+  ],
+  "scales": [
+    {
+      "chunks": 100,
+      "database_bytes": 147456,
+      "index_build_ms": 10.521,
+      "integrity": "ok",
+      "lexical": {
+        "recall_at_1": 1.0,
+        "recall_at_3": 1.0,
+        "recall_at_7": 1.0,
+        "first_pass_p95_ms": 0.5028,
+        "steady_p50_ms": 0.2139,
+        "steady_p95_ms": 0.5113,
+        "query_count": 372
+      },
+      "paraphrase_only": {
+        "recall_at_1": 0.0,
+        "recall_at_3": 0.0,
+        "recall_at_7": 0.0,
+        "first_pass_p95_ms": 0.3421,
+        "steady_p50_ms": 0.1961,
+        "steady_p95_ms": 0.6031,
+        "query_count": 372
+      }
+    },
+    {
+      "chunks": 1000,
+      "database_bytes": 397312,
+      "index_build_ms": 51.502,
+      "integrity": "ok",
+      "lexical": {
+        "recall_at_1": 1.0,
+        "recall_at_3": 1.0,
+        "recall_at_7": 1.0,
+        "first_pass_p95_ms": 1.2942,
+        "steady_p50_ms": 0.4297,
+        "steady_p95_ms": 1.0075,
+        "query_count": 372
+      },
+      "paraphrase_only": {
+        "recall_at_1": 0.0,
+        "recall_at_3": 0.0,
+        "recall_at_7": 0.0,
+        "first_pass_p95_ms": 3.2808,
+        "steady_p50_ms": 0.2342,
+        "steady_p95_ms": 1.5399,
+        "query_count": 372
+      }
+    },
+    {
+      "chunks": 10000,
+      "database_bytes": 2772992,
+      "index_build_ms": 504.312,
+      "integrity": "ok",
+      "lexical": {
+        "recall_at_1": 1.0,
+        "recall_at_3": 1.0,
+        "recall_at_7": 1.0,
+        "first_pass_p95_ms": 0.6786,
+        "steady_p50_ms": 0.4576,
+        "steady_p95_ms": 0.8507,
+        "query_count": 372
+      },
+      "paraphrase_only": {
+        "recall_at_1": 0.0,
+        "recall_at_3": 0.0,
+        "recall_at_7": 0.0,
+        "first_pass_p95_ms": 36.5632,
+        "steady_p50_ms": 0.7601,
+        "steady_p95_ms": 33.8627,
+        "query_count": 372
+      }
+    }
+  ]
+}

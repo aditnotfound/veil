@@ -22,13 +22,14 @@ import { applyLiveAnswerProfile } from "@/lib/call/live-answer-profile";
 async function buildEnhancedSystemPrompt(params: {
   baseSystemPrompt?: string;
   userMessage?: string;
+  knowledgeQuery?: string;
   apiKey?: string;
   knowledgeMode?: "local" | "dense" | "none";
   preparedContext?: string;
   onKnowledgeError?: () => void;
   responseProfile?: "default" | "live-short" | "live-guided" | "deep";
 }): Promise<{ prompt: string; personalContext: string }> {
-  const { baseSystemPrompt, userMessage, apiKey, knowledgeMode, preparedContext, onKnowledgeError, responseProfile } = params;
+  const { baseSystemPrompt, userMessage, knowledgeQuery, apiKey, knowledgeMode, preparedContext, onKnowledgeError, responseProfile } = params;
   const responseSettings = getResponseSettings();
   const prompts: string[] = [];
   let personalContext = "";
@@ -37,7 +38,7 @@ async function buildEnhancedSystemPrompt(params: {
     prompts.push(baseSystemPrompt);
   }
 
-  const query = userMessage || baseSystemPrompt || "";
+  const query = knowledgeQuery || userMessage || baseSystemPrompt || "";
   const knowledge = await resolveAnswerContext({
     isEnabled: () => getKnowledgeSettings().enabled,
     mode: knowledgeMode,
@@ -261,6 +262,7 @@ export async function* fetchAIResponse(params: {
   systemPrompt?: string;
   history?: Message[];
   userMessage: string;
+  knowledgeQuery?: string;
   imagesBase64?: string[];
   signal?: AbortSignal;
   historyOrder?: "chronological" | "newest-first";
@@ -277,6 +279,7 @@ export async function* fetchAIResponse(params: {
       systemPrompt,
       history = [],
       userMessage,
+      knowledgeQuery,
       imagesBase64 = [],
       signal,
       historyOrder,
@@ -300,6 +303,7 @@ export async function* fetchAIResponse(params: {
       baseSystemPrompt: systemPrompt,
       preparedContext,
       userMessage,
+      knowledgeQuery,
       apiKey: apiKeyForRag,
       knowledgeMode: knowledgeMode === "none"
         ? "none"
