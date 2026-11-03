@@ -135,7 +135,7 @@ pub async fn start_system_audio_capture(
         format!("Failed to access system audio: {}", e)
     })?;
 
-    let stream = input.stream();
+    let stream = input.stream().map_err(|e| format!("Failed to start system audio: {}", e))?;
     let sr = stream.sample_rate();
 
     // Validate sample rate
@@ -864,7 +864,7 @@ pub fn get_audio_sample_rate(_app: AppHandle) -> Result<u32, String> {
         format!("Failed to access system audio: {}", e)
     })?;
 
-    let stream = input.stream();
+    let stream = input.stream().map_err(|e| format!("Failed to start system audio: {}", e))?;
     let sr = stream.sample_rate();
 
     Ok(sr)

@@ -122,7 +122,7 @@ impl SpeakerInput {
     }
 
     // Starts the audio stream
-    pub fn stream(self) -> SpeakerStream {
+    pub fn stream(self) -> Result<SpeakerStream> {
         let sample_queue = Arc::new(Mutex::new(VecDeque::new()));
         let waker_state = Arc::new(Mutex::new(WakerState {
             waker: None,
@@ -136,31 +136,37 @@ impl SpeakerInput {
         let device_id = self.device_id;
 
         let capture_thread = thread::spawn(move || {
+            // WASAPI uses COM, which must be initialized on this new thread.
+            if let Err(e) = wasapi::initialize_mta().ok() {
+                let _ = init_tx.send(Err(anyhow::anyhow!("Windows audio COM initialization failed: {}", e)));
+                return;
+            }
             if let Err(e) =
                 SpeakerStream::capture_audio_loop(queue_clone, waker_clone, init_tx, device_id)
             {
                 error!("Pluely Audio capture loop failed: {}", e);
             }
+            wasapi::deinitialize();
         });
 
         let actual_sample_rate = match init_rx.recv_timeout(Duration::from_secs(5)) {
             Ok(Ok(rate)) => rate,
             Ok(Err(e)) => {
-                error!("Pluely Audio initialization failed: {}", e);
-                44100
+                if let Ok(mut state) = waker_state.lock() { state.shutdown = true; }
+                return Err(e.context("Windows system audio initialization failed"));
             }
-            Err(_) => {
-                error!("Pluely Audio initialization timeout");
-                44100
+            Err(e) => {
+                if let Ok(mut state) = waker_state.lock() { state.shutdown = true; }
+                return Err(anyhow::anyhow!("Windows system audio initialization did not complete: {}", e));
             }
         };
 
-        SpeakerStream {
+        Ok(SpeakerStream {
             sample_queue,
             waker_state,
             capture_thread: Some(capture_thread),
             actual_sample_rate,
-        }
+        })
     }
 }
 
@@ -198,7 +204,7 @@ impl SpeakerStream {
                         d
                     }
                     None => {
-                        get_default_device(&Direction::Render).expect("No default render device")
+                        get_default_device(&Direction::Render)?
                     }
                 },
                 None => get_default_device(&Direction::Render)?,
@@ -245,10 +251,11 @@ impl SpeakerStream {
                         }
                     }
 
-                    if h_event.wait_for_event(3000).is_err() {
-                        error!("Pluely timeout error, stopping capture");
-                        break;
-                    }
+                    if !super::idle_wait::wait_for_audio(
+                        || h_event.wait_for_event(3000).is_ok(),
+                        || waker_state.lock().map(|state| state.shutdown).unwrap_or(true),
+                        || thread::sleep(Duration::from_millis(50)),
+                    ) { break; }
 
                     let mut temp_queue = VecDeque::new();
                     if let Err(e) = render_client.read_from_device_to_deque(&mut temp_queue) {

@@ -139,6 +139,17 @@ The callback now updates when capture state changes. The shortcut fix and audio
 routing still need verification in a new packaged build; the interrupted empty
 session is not treated as a successful or complete call.
 
+The Windows loopback implementation also had two plausible causes for silent
+capture: its new audio thread did not initialize COM before WASAPI calls, and it
+stopped after a three-second event timeout. Initialization errors were converted
+to a plausible 44.1 kHz sample rate, leaving the UI in a listening state. The
+thread now initializes and releases COM, startup errors propagate to the UI, and
+idle timeouts continue waiting with backoff. Simulated wait and shutdown tests and
+a Windows Rust check pass. The previous failure's exact cause is not proven; a
+packaged playback test is still required. The WASAPI dependency reports all
+non-signaled waits as timeouts, so a permanently broken event handle cannot yet
+be distinguished from an idle output device by this logic.
+
 - Evaluate separate realistic cases after freezing the development changes.
 - Measure current controlled audio-to-visible-useful-card latency, failures and
   correctness; distinguish partial text from a useful answer.

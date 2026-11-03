@@ -20,6 +20,8 @@ use linux::{SpeakerInput as PlatformSpeakerInput, SpeakerStream as PlatformSpeak
 
 mod commands;
 mod live_frame;
+#[cfg(target_os = "windows")]
+mod idle_wait;
 
 // Re-export commands for tauri handler
 pub use commands::*;
@@ -102,14 +104,17 @@ impl SpeakerInput {
 
     // Starts the audio stream.
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-    pub fn stream(self) -> SpeakerStream {
+    pub fn stream(self) -> Result<SpeakerStream> {
+        #[cfg(target_os = "windows")]
+        let inner = self.inner.stream()?;
+        #[cfg(not(target_os = "windows"))]
         let inner = self.inner.stream();
-        SpeakerStream { inner }
+        Ok(SpeakerStream { inner })
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-    pub fn stream(self) -> SpeakerStream {
-        unimplemented!("SpeakerInput::stream is not supported on this platform")
+    pub fn stream(self) -> Result<SpeakerStream> {
+        Err(anyhow::anyhow!("SpeakerInput::stream is not supported on this platform"))
     }
 }
 
