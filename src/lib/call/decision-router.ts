@@ -1,6 +1,15 @@
 import type { FinalUtterance } from "./session-core";
 
 export type AutoResponseMode = "off" | "on_question" | "after_pause";
+export type EnabledAutoResponseMode = Exclude<AutoResponseMode, "off">;
+
+/** Preserve the chosen scope across the compact off/on switch and restarts. */
+export function restoredAutoResponseMode(savedMode: string | null, savedEnabled: string | null): EnabledAutoResponseMode {
+  if (savedMode === "on_question" || savedMode === "after_pause") return savedMode;
+  if (savedEnabled === "on_question" || savedEnabled === "after_pause") return savedEnabled;
+  // Older installations that were saved off historically restarted as question-only.
+  return savedMode === "off" ? "on_question" : "after_pause";
+}
 export const ROUTER_VERSION = "deterministic-v9";
 export const MAX_LIVE_GUIDANCE_CHARS = 240;
 export type DecisionReason =

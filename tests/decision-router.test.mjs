@@ -1,6 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, callCardPrompt, deepCallPrompt, selectCallAnswerPlan, shouldCancelAnswerForDecision, shouldSkipDelayedDecision, MAX_LIVE_GUIDANCE_CHARS } from "../src/lib/call/decision-router.ts";
+import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, callCardPrompt, deepCallPrompt, selectCallAnswerPlan, shouldCancelAnswerForDecision, shouldSkipDelayedDecision, restoredAutoResponseMode, MAX_LIVE_GUIDANCE_CHARS } from "../src/lib/call/decision-router.ts";
+
+test("automatic answer switch restores the selected scope across restarts", () => {
+  assert.equal(restoredAutoResponseMode("off", "after_pause"), "after_pause");
+  assert.equal(restoredAutoResponseMode("off", "on_question"), "on_question");
+  assert.equal(restoredAutoResponseMode("on_question", "after_pause"), "on_question");
+  assert.equal(restoredAutoResponseMode("off", null), "on_question");
+  assert.equal(restoredAutoResponseMode(null, null), "after_pause");
+});
 
 test("a newer question arriving during persistence supersedes the delayed answer", () => {
   const older = routeCallTurn(turn("Why is the training set leaking?"), "after_pause");

@@ -40,7 +40,7 @@ import { buildJevShadowRequest, requestJevShadow, type JevShadowResult } from "@
 import { transcribeWithHedge, transcribeWithRetry, timeoutForWav, isShortWavForHedge } from "@/lib/call/transcribe-with-retry";
 import { DeepgramLiveCaptions, pcm16FromBase64, pcm16FromFloat, type CaptionStatus } from "@/lib/call/deepgram-live-captions";
 import { OpenAILiveCaptions } from "@/lib/call/openai-live-captions";
-import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, selectCallAnswerPlan, deepCallPrompt, shouldCancelAnswerForDecision, shouldSkipDelayedDecision, MAX_LIVE_GUIDANCE_CHARS, type AnsweredTurn, type AutoResponseMode, type CallDecision } from "@/lib/call/decision-router";
+import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, selectCallAnswerPlan, deepCallPrompt, shouldCancelAnswerForDecision, shouldSkipDelayedDecision, restoredAutoResponseMode, MAX_LIVE_GUIDANCE_CHARS, type AnsweredTurn, type AutoResponseMode, type EnabledAutoResponseMode, type CallDecision } from "@/lib/call/decision-router";
 import { formatSessionLedgerEvidence, selectSessionLedgerEntries } from "@/lib/call/session-ledger";
 import { buildSessionPlannerSnapshot, formatSessionPlanEvidence, parseSessionPlan, SESSION_PLANNER_MILESTONE, SESSION_PLANNER_PROMPT, SessionPlannerCoordinator, type ActiveSessionPlan } from "@/lib/call/session-planner";
 import { selectedModelName, withModelOverride } from "@/lib/call/deep-provider";
@@ -163,6 +163,7 @@ export function useSystemAudio() {
     useState<boolean>(false);
   const [autoResponseMode, setAutoResponseModeState] =
     useState<AutoResponseMode>("after_pause");
+  const lastEnabledAutoModeRef = useRef<EnabledAutoResponseMode>("after_pause");
   const [autoResponsePace, setAutoResponsePaceState] =
     useState<AutoResponsePace>("balanced");
   const [fastOpenAIAnswers, setFastOpenAIAnswersState] = useState(
@@ -559,6 +560,9 @@ export function useSystemAudio() {
     const savedAutoMode = safeLocalStorage.getItem(
       STORAGE_KEYS.AUTO_RESPONSE_MODE
     );
+    lastEnabledAutoModeRef.current = restoredAutoResponseMode(
+      savedAutoMode, safeLocalStorage.getItem(STORAGE_KEYS.AUTO_RESPONSE_LAST_ENABLED_MODE)
+    );
     if (
       savedAutoMode === "off" ||
       savedAutoMode === "on_question" ||
@@ -582,6 +586,10 @@ export function useSystemAudio() {
     autoResponseModeRef.current = mode;
     setAutoResponseModeState(mode);
     safeLocalStorage.setItem(STORAGE_KEYS.AUTO_RESPONSE_MODE, mode);
+    if (mode !== "off") {
+      lastEnabledAutoModeRef.current = mode;
+    }
+    safeLocalStorage.setItem(STORAGE_KEYS.AUTO_RESPONSE_LAST_ENABLED_MODE, lastEnabledAutoModeRef.current);
     if (mode === "off") {
       cancelAnswerForSpeech();
       abortJevShadows();
@@ -589,6 +597,10 @@ export function useSystemAudio() {
       setJevShadowStatus("Off");
     }
   }, [abortJevShadows, cancelAnswerForSpeech]);
+
+  const toggleAutoResponseMode = useCallback(() => {
+    setAutoResponseMode(autoResponseModeRef.current === "off" ? lastEnabledAutoModeRef.current : "off");
+  }, [setAutoResponseMode]);
 
   const setAutoResponsePace = useCallback((pace: AutoResponsePace) => {
     setAutoResponsePaceState(pace);
@@ -2242,6 +2254,7 @@ export function useSystemAudio() {
     // Auto-response settings
     autoResponseMode,
     setAutoResponseMode,
+    toggleAutoResponseMode,
     liveAnswerGuidance,
     setLiveAnswerGuidance,
     autoResponsePace,

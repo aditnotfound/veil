@@ -234,10 +234,11 @@ were answered without inventing facts; these are not evidence of general Prep
 retrieval quality. A synthetic counting problem produced the correct answer 84
 in the saved card, but its first visible time was not observed; a separate
 proof instruction was silent in question-only mode. Playback is not a real call.
-The compact Auto answers toggle currently always re-enables question-only mode,
-even if Questions + requests was selected before switching it off. That
-setting-loss issue remains to be fixed; the run does not establish why this
-particular setting was active.
+The compact Auto answers toggle previously always re-enabled question-only mode,
+even if Questions + requests had been selected before switching it off. It now
+remembers the most recently enabled mode across restarts and labels the active
+scope. This change was not present in the run and does not establish why that
+particular setting was active. A packaged interaction test remains necessary.
 
 For short PCM system-audio clips sent to the configured OpenAI STT provider,
 the next revision starts at most one duplicate request to that same provider

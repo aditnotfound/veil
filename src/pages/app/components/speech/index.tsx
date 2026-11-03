@@ -82,6 +82,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
     scrollAreaRef,
     autoResponseMode,
     setAutoResponseMode,
+    toggleAutoResponseMode,
     liveAnswerGuidance,
     setLiveAnswerGuidance,
     autoResponsePace,
@@ -319,10 +320,11 @@ export const SystemAudio = (props: useSystemAudioType) => {
                 <div className="flex flex-wrap items-center gap-1.5">
                   {capturing && isVadMode && !setupRequired && (
                     <Button size="sm" variant={autoResponseMode === "off" ? "outline" : "default"}
-                      onClick={() => setAutoResponseMode(autoResponseMode === "off" ? "on_question" : "off")}
+                      onClick={toggleAutoResponseMode}
                       className="h-6 px-2 text-[10px]"
-                      title="Toggle automatic answers; transcription continues either way">
-                      Auto answers {autoResponseMode === "off" ? "off" : "on"}
+                      title="Toggle automatic answers; the selected mode is restored when switched back on">
+                      {autoResponseMode === "off" ? "Auto answers off" :
+                        autoResponseMode === "on_question" ? "Auto: questions" : "Auto: questions + requests"}
                     </Button>
                   )}
                   {liveCaptionsAvailable && (

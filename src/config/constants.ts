@@ -26,6 +26,7 @@ export const STORAGE_KEYS = {
   USE_IMAGE_EVERY_MESSAGE: "use_image_every_message",
   OVERLAY_MODE: "overlay_mode",
   AUTO_RESPONSE_MODE: "auto_response_mode",
+  AUTO_RESPONSE_LAST_ENABLED_MODE: "auto_response_last_enabled_mode",
   AUTO_RESPONSE_PACE: "auto_response_pace",
   INTERVAL_MONITOR: "interval_monitor",
 } as const;
