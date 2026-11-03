@@ -29,6 +29,13 @@ imperatives; allow short followups only within 30 seconds of a successful answer
 Off, microphone exclusion, duplicate suppression and cancellation still apply.
 The recent transcript supplies the previous subject to the answer model.
 
+Follow-up context now also includes the last completed Veil suggestion when
+its question precedes the current turn in the same session and the suggestion
+finished before the current turn began. It is bounded and labeled as potentially
+wrong and not necessarily spoken; it is not evidence for personal claims.
+Later, canceled, missing, cross-session and same-turn suggestions are excluded.
+Tests check construction and boundaries, not whether a model uses the context well.
+
 Validation: 88 Node tests passed; TypeScript checking passed. This milestone
 does not update the running packaged binary. A fresh release build and runtime
 verification will follow the remaining pipeline changes.

@@ -44,6 +44,7 @@ import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, callCardPrompt,
 import { formatSessionLedgerEvidence, selectSessionLedgerEntries } from "@/lib/call/session-ledger";
 import { buildSessionPlannerSnapshot, formatSessionPlanEvidence, parseSessionPlan, SESSION_PLANNER_MILESTONE, SESSION_PLANNER_PROMPT, SessionPlannerCoordinator, type ActiveSessionPlan } from "@/lib/call/session-planner";
 import { selectedModelName, withModelOverride } from "@/lib/call/deep-provider";
+import { previousSuggestionContext } from "@/lib/call/prompt-evidence";
 export type { AutoResponseMode } from "@/lib/call/decision-router";
 
 type LiveCaptionStream = DeepgramLiveCaptions | OpenAILiveCaptions;
@@ -239,6 +240,8 @@ export function useSystemAudio() {
     prompt: string;
     answer: string;
     turnId?: string;
+    sessionId: string;
+    completedAt: number;
   } | null>(null);
   const answerInFlightRef = useRef(false);
   const manualAnswerInFlightRef = useRef(false);
@@ -1222,6 +1225,10 @@ export function useSystemAudio() {
             ];
             const recentIds = callCoreRef.current.historyEntriesBefore(answerTurnId ?? "")
               .map(({ id }) => id);
+            const currentTurn = callCoreRef.current.orderedUtterances()
+              .find((utterance) => utterance.id === answerTurnId);
+            const priorSuggestion = previousSuggestionContext(completedCardRef.current, currentTurn, recentIds);
+            if (priorSuggestion) historyWithEvidence = [...historyWithEvidence, priorSuggestion];
             const ledgerEntries = selectSessionLedgerEntries(
               callCoreRef.current.orderedUtterances(), answerTurnId ?? "", recentIds
             );
@@ -1312,6 +1319,8 @@ export function useSystemAudio() {
             prompt: transcription,
             answer: fullResponse,
             turnId: answerTurnId,
+            sessionId,
+            completedAt: timestamp,
           };
           succeeded = true;
           if (sessionId && answerTurnId) {

@@ -1,6 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { attachPersonalEvidence } from "../src/lib/call/prompt-evidence.ts";
+import { attachPersonalEvidence, previousSuggestionContext } from "../src/lib/call/prompt-evidence.ts";
+
+test("previous suggestion is bounded, labeled unverified, and limited to earlier completed turns", () => {
+  const card = { sessionId: "s1", turnId: "t1", prompt: "Why use grouped folds?", answer: "Avoid patient leakage.", completedAt: 1500 };
+  const current = { id: "t2", sessionId: "s1", source: "system", sequence: 2, startedAt: 2000, endedAt: 2500, text: "How so?" };
+  const context = previousSuggestionContext(card, current, ["t1"]);
+  assert.equal(context.role, "user");
+  assert.match(context.content, /may be wrong and may not have been spoken/);
+  assert.match(context.content, /not evidence for personal facts/);
+  assert.match(context.content, /Avoid patient leakage/);
+  assert.equal(previousSuggestionContext(card, current, []), null);
+  assert.equal(previousSuggestionContext(card, { ...current, sessionId: "s2" }, ["t1"]), null);
+  assert.equal(previousSuggestionContext({ ...card, completedAt: 2100 }, current, ["t1"]), null);
+  assert.equal(previousSuggestionContext({ ...card, turnId: "t2" }, current, ["t1"]), null);
+  assert.equal(previousSuggestionContext(card, undefined, ["t1"]), null);
+  assert.ok(previousSuggestionContext({ ...card, answer: "x".repeat(3000) }, current, ["t1"]).content.length < 2000);
+});
 
 test("retrieved material stays in a user-priority message before the current request", () => {
   const chronological = [{ role: "user", content: "earlier" }];
