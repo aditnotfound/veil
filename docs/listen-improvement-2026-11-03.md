@@ -52,6 +52,9 @@ profile. Detection is heuristic and can miss difficult work; a selected provider
 explicit reasoning settings are preserved. The automatic deep result streams in
 the existing answer card and remains unverified. Unit tests cover routing and
 prompt choice; actual mathematical correctness and elapsed time remain unmeasured.
+The heuristic also covers spoken remainder questions using “divided by” and
+digit-counting questions like the earlier spoken evaluations. A routing test
+does not establish that transcription will preserve the triggering words.
 
 Validation: 88 Node tests passed; TypeScript checking passed. This milestone
 does not update the running packaged binary. A fresh release build and runtime

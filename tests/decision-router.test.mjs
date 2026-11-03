@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, callCardPrompt, deepCallPrompt, selectCallAnswerPlan, shouldCancelAnswerForDecision, MAX_LIVE_GUIDANCE_CHARS } from "../src/lib/call/decision-router.ts";
 
 test("proofs and multistep math use a careful profile while ordinary questions stay fast", () => {
-  for (const text of ["Prove that the estimator is unbiased", "Find the remainder of 7 to the power 2026 modulo 1000", "Derive the gradient of cross entropy", "Solve this AIME problem"]) {
+  for (const text of ["Prove that the estimator is unbiased", "Find the remainder of 7 to the power 2026 modulo 1000", "What is the remainder when seven to the power 2026 is divided by one thousand?", "How many three digit numbers have strictly increasing digits that sum to twelve?", "Derive the gradient of cross entropy", "Solve this AIME problem"]) {
     const plan = selectCallAnswerPlan(text, "Base", "Show the steps");
     assert.equal(plan.profile, "deep", text);
     assert.match(plan.prompt, /step by step/);

@@ -102,7 +102,9 @@ export function selectCallAnswerPlan(text: string, basePrompt: string, guidance 
   profile: "live-short" | "live-guided" | "deep"; prompt: string;
 } {
   const hard = /\b(?:prove|disprove|proof|derive|derivation|aime|olympiad|modular arithmetic|recurrence relation|expected value|evidence lower bound|elbo)\b/i.test(text) ||
-    /\b(?:solve|calculate|compute|find)\b.{0,160}\b(?:remainder|modulo|modulus|probability|variance|integral|recurrence|number of ways)\b/i.test(text);
+    /\b(?:solve|calculate|compute|find)\b.{0,160}\b(?:remainder|modulo|modulus|probability|variance|integral|recurrence|number of ways)\b/i.test(text) ||
+    /\bremainder\b.{0,160}\b(?:power|modulo|modulus|divided by)\b/i.test(text) ||
+    /\b(?:how many|count|number of)\b.{0,120}\b(?:digit|digits)\b.{0,100}\b(?:increasing|decreasing|distinct|sum)\b/i.test(text);
   if (!hard) return { profile: guidance.trim() ? "live-guided" : "live-short", prompt: callCardPrompt(basePrompt, guidance) };
   const bounded = guidance.trim().slice(0, MAX_LIVE_GUIDANCE_CHARS);
   return { profile: "deep", prompt: deepCallPrompt(basePrompt) + (bounded
