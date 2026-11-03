@@ -187,8 +187,27 @@ delay finalizing the question after the device stops delivering packets. The new
 idle clock injects bounded VAD-only silence after two 100 ms ticks without real
 samples while a speech segment is active; real audio resets the clock. It does
 not inject fabricated PCM into the live-caption stream. Simulated idle and
-resumption tests do not prove safety under real device jitter or establish the
-latency improvement; packaged before/after tests are still required.
+resumption tests alone do not prove safety under real device jitter or establish
+the latency improvement.
+
+On a subsequent packaged build with that idle fix and the earlier v8 router,
+the same synthetic recording was played to the same speaker endpoint. The
+estimated detected-speech-end to audio-ready delay fell from 4,472 ms to
+1,270 ms; generated first text fell from 9,568 ms to 4,720 ms. A sampled
+accessibility observation captured a clearly useful, accurate explanation at
+5,376 ms after detected speech end. This was a single before/after comparison,
+not a distribution or a real-call result; the window was observed by polling,
+and actual human visibility or the precise first useful instant is not proven.
+
+Two more synthetic spoken cases exercised the same packaged build. An
+idempotency answer first observed at 4,651 ms after detected speech end gave a
+useful key-and-unique-constraint approach, later adding a transaction and an
+outbox. An ML answer first observed at 4,615 ms correctly recommended grouping
+by patient, but said to leave validation untouched during tuning without
+specifying a separate tuning set; that wording can mislead, since validation
+data is often used for tuning. Neither case establishes percentile performance
+or overall answer quality. Three cases are far below the 20-case ordinary
+benchmark minimum, and none was a live conversation with another person.
 
 - Evaluate separate realistic cases after freezing the development changes.
 - Measure current controlled audio-to-visible-useful-card latency, failures and
