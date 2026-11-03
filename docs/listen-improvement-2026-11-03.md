@@ -98,6 +98,19 @@ test verifies overlap and failure isolation, and router tests cover the delayed
 decision guard. SQLite contention may reduce or erase the savings; actual
 question-to-useful-card latency remains unmeasured on this revision.
 
+The completed-card exporter stores provider-generated checkpoints, not window
+observations, and excludes unanswered questions. Its legacy latency report no
+longer claims that those records can pass a visible-usefulness gate. The new
+`scripts/report_visible_useful_benchmark.py` takes a complete question inventory
+and a reviewed outcome for every question, including misses and unobserved
+cases. It reports the user's 2 s / 4 s target separately from the PRD's stricter
+1.5 s / 3 s target, with sample minimums of 20 and 200 ordinary questions.
+Passing also requires every ordinary question to have a reviewed useful window
+timestamp. Hard questions are counted separately. These input labels and
+timestamps still require independent review; the script does not verify the
+screen, classify correctness, or establish real-call performance by itself.
+An illustrative input schema is in `tests/fixtures/visible-useful-benchmark-example.json`.
+
 ## Local knowledge retrieval diagnostic
 
 The synthetic 12-target lexical benchmark ran at 100, 1,000 and 10,000 chunks.

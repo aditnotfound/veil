@@ -1,8 +1,8 @@
-"""Report question-end-to-first-useful-card latency from a labeled card review.
+"""Report question-end-to-first-useful-generated-text from completed cards.
 
 Usage: python scripts/report_useful_card_latency.py LABELED_REVIEW.json
-The PRD gate is eligible only with at least 200 reviewed ordinary-question cards
-and no reviewed question lacking a useful checkpoint.
+Generated chunks are not window observations. The completed-card export omits
+missed questions. This report cannot pass an on-screen usefulness or latency gate.
 """
 
 import argparse
@@ -67,7 +67,8 @@ def analyze(review: dict) -> dict:
         "p50Ms": p50,
         "p95Ms": p95,
         "gateEligible": eligible,
-        "passesPrdGate": passed,
+        "meetsGeneratedTextThreshold": passed,
+        "passesPrdGate": False,
     }
 
 
@@ -80,9 +81,10 @@ def format_report(result: dict) -> str:
         f"Reviewed cards: {result['reviewedCards']}",
         f"Useful cards: {result['usefulCards']}",
         f"No useful checkpoint: {result['noUsefulCard']}",
-        f"Question end to first useful checkpoint: {latency}",
-        f"PRD sample gate eligible (>= {MIN_REVIEWED}): {str(result['gateEligible']).lower()}",
-        f"Passes PRD latency gate: {str(result['passesPrdGate']).lower()}",
+        f"Question end to first useful generated checkpoint: {latency}",
+        f"Generated-card sample >= {MIN_REVIEWED}: {str(result['gateEligible']).lower()}",
+        f"Meets generated-text thresholds: {str(result['meetsGeneratedTextThreshold']).lower()}",
+        "PRD visible-usefulness gate: not established (missing window observations and unanswered questions)",
     ])
 
 

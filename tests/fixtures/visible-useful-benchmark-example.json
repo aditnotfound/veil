@@ -1,0 +1,13 @@
+{
+  "description": "Illustrative fabricated timestamps; this is not a benchmark result.",
+  "questions": [
+    {"id": "example-1", "category": "coding", "difficulty": "ordinary", "questionEndedAt": 1000},
+    {"id": "example-2", "category": "personal", "difficulty": "ordinary", "questionEndedAt": 9000},
+    {"id": "example-3", "category": "math", "difficulty": "hard", "questionEndedAt": 15000}
+  ],
+  "observations": [
+    {"questionId": "example-1", "outcome": "useful", "firstUsefulVisibleAt": 2800, "visibilityEvidence": "window_observation"},
+    {"questionId": "example-2", "outcome": "missed"},
+    {"questionId": "example-3", "outcome": "unobserved"}
+  ]
+}

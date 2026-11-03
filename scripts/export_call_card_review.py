@@ -76,7 +76,7 @@ def build_review(db_path: Path, session_id: str | None = None) -> dict:
         "description": "Local completed-card review. Labels are intentionally unset.",
         "annotationGuide": (
             "Read each prompt, then inspect checkpoints in order. Set cardUseful to true only when "
-            "a displayed checkpoint would materially help during the call, and set firstUsefulCheckpoint "
+            "a generated checkpoint would materially help during the call, and set firstUsefulCheckpoint "
             "to the earliest such checkpoint index. For an unusable card, set cardUseful to false and "
             "leave firstUsefulCheckpoint null. Do not judge a generic acknowledgement as useful."
         ),

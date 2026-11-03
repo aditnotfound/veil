@@ -73,6 +73,15 @@ class CallCardReviewTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 build_review(path)
 
+    def test_generated_checkpoints_alone_never_pass_visible_prd_gate(self):
+        card = {"cardUseful": True, "firstUsefulCheckpoint": 0,
+                "questionEndedAt": 1000, "checkpoints": [{"at": 1500}]}
+        result = analyze({"sessions": [{"id": "synthetic", "cards": [dict(card) for _ in range(200)]}]})
+        self.assertTrue(result["gateEligible"])
+        self.assertTrue(result["meetsGeneratedTextThreshold"])
+        self.assertFalse(result["passesPrdGate"])
+        self.assertIn("not established", format_report(result))
+
 
 if __name__ == "__main__":
     unittest.main()
