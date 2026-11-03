@@ -14,6 +14,28 @@ function samples(frame) {
   return Array.from({ length: frame.byteLength / 2 }, (_, index) => view.getInt16(index * 2, true));
 }
 
+test("discarded noise cannot become the next committed live question", async () => {
+  const captions = [], sent = [];
+  const socket = { readyState: 1, bufferedAmount: 0, onopen: null, onmessage: null,
+    onerror: null, onclose: null, send(value) { sent.push(JSON.parse(value)); }, close() {} };
+  const stream = new OpenAILiveCaptions("test-key", 16000,
+    text => captions.push(text), () => {},
+    async () => new Response(JSON.stringify({ value: "ek_test" })), () => socket);
+  await new Promise(resolve => setImmediate(resolve));
+  const event = data => socket.onmessage({ data: JSON.stringify(data) });
+  event({ type: "session.updated" });
+  event({ type: "conversation.item.input_audio_transcription.delta", item_id: "noise", delta: "unrelated noise" });
+  stream.discard();
+  stream.commit();
+  event({ type: "input_audio_buffer.committed", item_id: "noise" });
+  event({ type: "input_audio_buffer.committed", item_id: "question" });
+  event({ type: "conversation.item.input_audio_transcription.completed", item_id: "noise", transcript: "unrelated noise" });
+  event({ type: "conversation.item.input_audio_transcription.completed", item_id: "question", transcript: "Why use a pipeline?" });
+  assert.equal(sent.filter(e => e.type === "input_audio_buffer.commit").length, 2);
+  assert.equal(captions.at(-1), "Why use a pipeline?");
+  stream.close();
+});
+
 test("24 kHz resampling keeps the same samples across capture frame boundaries", () => {
   for (const [rate, length] of [[16000, 320], [44100, 882], [48000, 960]]) {
     const input = Array.from({ length }, (_, index) => Math.round(Math.sin(index / 10) * 10000));

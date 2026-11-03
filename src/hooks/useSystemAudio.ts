@@ -675,6 +675,11 @@ export function useSystemAudio() {
 
         // Speech discarded (too short)
         discardedUnlisten = await listen("speech-discarded", (event) => {
+          if (systemLiveRef.current instanceof OpenAILiveCaptions) {
+            systemLiveRef.current.discard();
+            setPartialSystemCaption("");
+          }
+          systemSpeechActiveRef.current = false;
           const reason = event.payload as string;
           console.log("Speech discarded:", reason);
           // Don't show error - this is expected behavior

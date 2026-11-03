@@ -337,6 +337,9 @@ async fn run_vad_capture(
                                 let _ = app.emit("audio-encoding-error", "Failed to encode speech");
                             }
                         } else {
+                            super::live_frame::flush_before_segment(&mut live_frame, |samples| {
+                                emit_pcm_frame(&app, sr, samples)
+                            });
                             let _ = app.emit(
                                 "speech-discarded",
                                 "Audio too short (likely background noise)",

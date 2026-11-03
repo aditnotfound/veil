@@ -164,6 +164,18 @@ export class OpenAILiveCaptions {
     this.queueOrSend({ type: "commit" });
   }
 
+  /** Close a rejected VAD segment without displaying it as the next turn. */
+  discard(): void {
+    if (this.closed) return;
+    for (const id of this.earlyParts.keys()) this.hiddenItemIds.add(id);
+    this.earlyParts.clear();
+    while (this.hiddenItemIds.size > 128) {
+      this.hiddenItemIds.delete(this.hiddenItemIds.values().next().value!);
+    }
+    this.pendingCommits.push({ visible: false });
+    this.queueOrSend({ type: "commit" });
+  }
+
   /** The durable batch transcript has replaced this temporary display text. */
   resetDisplay(): void {
     for (const commit of this.pendingCommits) commit.visible = false;

@@ -270,3 +270,15 @@ packaged app. Listen was stopped and the app left open.
   technical quality independently from ordinary-card speed.
 - Build and verify the packaged app; push subsequent tested milestones.
 - Leave real-call verification explicitly pending until the user tests it.
+
+## Live transcription boundary prerequisite
+
+Inspection found that rejected short VAD segments emitted `speech-discarded`
+without flushing the last live PCM frame or committing the corresponding live
+transcription buffer. The next accepted segment could therefore include audio
+from the rejected segment. Native capture now flushes before that discard event,
+and the OpenAI caption stream commits the rejected buffer invisibly. A regression
+test covers a late rejected transcript followed by a valid question. This is a
+boundary correction, not activation of live transcription as an answer source;
+batch STT remains authoritative. Packaged audio verification and reliable
+correlation of live final transcripts to saved turns still remain.
