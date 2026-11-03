@@ -249,6 +249,16 @@ transcription charge and does not guarantee lower latency. Unit tests cover fast
 success, slow rescue, both winners, failures, and cancellation; an actual
 packaged before/after test of the tail improvement remains necessary.
 
+The subsequent packaged build started and stopped Listen with the global
+shortcut. In one speaker-playback smoke test, it correctly explained why an
+index slows database writes. A useful answer was observed in the accessibility
+tree 6,555 ms after detected speech end. STT took 2,270 ms, so the three-second
+backup was not triggered; this does not demonstrate a real tail-latency
+improvement or physical visibility. UI automation could not access the
+microphone and settings buttons in that window, so the mode toggle's off/on
+interaction and preservation of a selected scope remain unverified in the
+packaged app. Listen was stopped and the app left open.
+
 - Evaluate separate realistic cases after freezing the development changes.
 - Measure current controlled audio-to-visible-useful-card latency, failures and
   correctness; distinguish partial text from a useful answer.
