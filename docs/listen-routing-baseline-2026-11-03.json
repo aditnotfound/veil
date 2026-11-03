@@ -1,0 +1,419 @@
+{
+  "routerVersion": "deterministic-v6",
+  "description": "Original synthetic development cases. Labels measure routing intent only, not answer correctness or live-call latency. No invented negative-call duration.",
+  "mode": "after_pause",
+  "total": 40,
+  "truePositive": 12,
+  "falsePositive": 5,
+  "falseNegative": 9,
+  "precision": 0.7058823529411765,
+  "recall": 0.5714285714285714,
+  "timingScope": "Local routing only; excludes audio capture, STT, retrieval, model generation and visible rendering.",
+  "cases": [
+    {
+      "id": "code-1",
+      "category": "coding",
+      "text": "How would you make a payment endpoint idempotent when two retries arrive concurrently?",
+      "answer": true,
+      "actual": true,
+      "reason": "explicit_question",
+      "correct": true,
+      "routerMs": 1.3220000000000027
+    },
+    {
+      "id": "code-2",
+      "category": "coding",
+      "text": "Our database has a million rows. How would you paginate without slow offsets",
+      "answer": true,
+      "actual": false,
+      "reason": "not_a_request",
+      "correct": false,
+      "routerMs": 0.4947999999999979
+    },
+    {
+      "id": "code-3",
+      "category": "coding",
+      "text": "Explain why a mutable default argument leaks state between Python calls",
+      "answer": true,
+      "actual": true,
+      "reason": "direct_request",
+      "correct": true,
+      "routerMs": 0.165300000000002
+    },
+    {
+      "id": "code-4",
+      "category": "coding",
+      "text": "Can you compare optimistic locking with a database row lock",
+      "answer": true,
+      "actual": true,
+      "reason": "explicit_question",
+      "correct": true,
+      "routerMs": 0.008099999999998886
+    },
+    {
+      "id": "code-5",
+      "category": "coding",
+      "text": "The worker crashed after charging the card. What should happen on retry",
+      "answer": true,
+      "actual": false,
+      "reason": "not_a_request",
+      "correct": false,
+      "routerMs": 0.028400000000004866
+    },
+    {
+      "id": "code-6",
+      "category": "coding",
+      "text": "We already fixed the race with a unique constraint",
+      "answer": false,
+      "actual": false,
+      "reason": "not_a_request",
+      "correct": true,
+      "routerMs": 0.006699999999995043
+    },
+    {
+      "id": "ml-1",
+      "category": "ml",
+      "text": "Why is fitting a scaler before splitting the dataset a leakage problem?",
+      "answer": true,
+      "actual": true,
+      "reason": "explicit_question",
+      "correct": true,
+      "routerMs": 0.010400000000004184
+    },
+    {
+      "id": "ml-2",
+      "category": "ml",
+      "text": "For repeated measurements from the same patient, how would you split training and validation data",
+      "answer": true,
+      "actual": true,
+      "reason": "explicit_question",
+      "correct": true,
+      "routerMs": 0.4198999999999984
+    },
+    {
+      "id": "ml-3",
+      "category": "ml",
+      "text": "Accuracy is ninety nine percent but positives are rare. Which metrics would you inspect",
+      "answer": true,
+      "actual": false,
+      "reason": "not_a_request",
+      "correct": false,
+      "routerMs": 0.012500000000002842
+    },
+    {
+      "id": "ml-4",
+      "category": "ml",
+      "text": "Walk me through how you would detect distribution shift in production",
+      "answer": true,
+      "actual": true,
+      "reason": "direct_request",
+      "correct": true,
+      "routerMs": 0.017700000000004934
+    },
+    {
+      "id": "ml-5",
+      "category": "ml",
+      "text": "What I changed was the feature selection pipeline",
+      "answer": false,
+      "actual": false,
+      "reason": "not_a_request",
+      "correct": true,
+      "routerMs": 0.011299999999991428
+    },
+    {
+      "id": "personal-1",
+      "category": "personal",
+      "text": "Tell me about a project where you handled a difficult engineering tradeoff",
+      "answer": true,
+      "actual": true,
+      "reason": "direct_request",
+      "correct": true,
+      "routerMs": 0.006099999999989336
+    },
+    {
+      "id": "personal-2",
+      "category": "personal",
+      "text": "What exactly was your contribution to that project?",
+      "answer": true,
+      "actual": true,
+      "reason": "explicit_question",
+      "correct": true,
+      "routerMs": 0.01099999999999568
+    },
+    {
+      "id": "personal-3",
+      "category": "personal",
+      "text": "We discussed your background earlier. Why did you choose that research direction",
+      "answer": true,
+      "actual": false,
+      "reason": "not_a_request",
+      "correct": false,
+      "routerMs": 0.006100000000003547
+    },
+    {
+      "id": "personal-4",
+      "category": "personal",
+      "text": "How many people used your app and where did that number come from?",
+      "answer": true,
+      "actual": true,
+      "reason": "explicit_question",
+      "correct": true,
+      "routerMs": 0.01300000000000523
+    },
+    {
+      "id": "personal-5",
+      "category": "personal",
+      "text": "I will send you my resume after this call",
+      "answer": false,
+      "actual": false,
+      "reason": "not_a_request",
+      "correct": true,
+      "routerMs": 0.006399999999999295
+    },
+    {
+      "id": "follow-1",
+      "category": "followup",
+      "text": "Why not?",
+      "answer": true,
+      "previousAnswer": "Use a per-user chronological split rather than a random row split.",
+      "actual": false,
+      "reason": "short_or_noisy",
+      "correct": false,
+      "routerMs": 0.010099999999994225
+    },
+    {
+      "id": "follow-2",
+      "category": "followup",
+      "text": "And memory?",
+      "answer": true,
+      "previousAnswer": "The hash join is faster for this workload.",
+      "actual": false,
+      "reason": "short_or_noisy",
+      "correct": false,
+      "routerMs": 0.004400000000003956
+    },
+    {
+      "id": "follow-3",
+      "category": "followup",
+      "text": "How so?",
+      "answer": true,
+      "previousAnswer": "That evaluation leaks patient identity across folds.",
+      "actual": false,
+      "reason": "short_or_noisy",
+      "correct": false,
+      "routerMs": 0.002899999999996794
+    },
+    {
+      "id": "follow-4",
+      "category": "followup",
+      "text": "Could you give a concrete example of that tradeoff",
+      "answer": true,
+      "previousAnswer": "Optimistic locking avoids holding a long transaction open.",
+      "actual": true,
+      "reason": "explicit_question",
+      "correct": true,
+      "routerMs": 0.004199999999997317
+    },
+    {
+      "id": "follow-5",
+      "category": "followup",
+      "text": "Why not?",
+      "answer": false,
+      "actual": false,
+      "reason": "short_or_noisy",
+      "correct": true,
+      "routerMs": 0.00539999999999452
+    },
+    {
+      "id": "follow-6",
+      "category": "followup",
+      "text": "And memory?",
+      "answer": false,
+      "actual": false,
+      "reason": "short_or_noisy",
+      "correct": true,
+      "routerMs": 0.00190000000000623
+    },
+    {
+      "id": "social-1",
+      "category": "conversation",
+      "text": "Can you hear me?",
+      "answer": false,
+      "actual": false,
+      "reason": "social_or_housekeeping",
+      "correct": true,
+      "routerMs": 0.002600000000001046
+    },
+    {
+      "id": "social-2",
+      "category": "conversation",
+      "text": "How are you doing today?",
+      "answer": false,
+      "actual": true,
+      "reason": "explicit_question",
+      "correct": false,
+      "routerMs": 0.004199999999997317
+    },
+    {
+      "id": "social-3",
+      "category": "conversation",
+      "text": "Do you want me to share my screen?",
+      "answer": false,
+      "actual": true,
+      "reason": "explicit_question",
+      "correct": false,
+      "routerMs": 0.005800000000007799
+    },
+    {
+      "id": "social-4",
+      "category": "conversation",
+      "text": "Could you repeat that last sentence?",
+      "answer": false,
+      "actual": true,
+      "reason": "explicit_question",
+      "correct": false,
+      "routerMs": 0.0033999999999991815
+    },
+    {
+      "id": "social-5",
+      "category": "conversation",
+      "text": "Give me a second to open the document",
+      "answer": false,
+      "actual": true,
+      "reason": "direct_request",
+      "correct": false,
+      "routerMs": 0.0027999999999934744
+    },
+    {
+      "id": "social-6",
+      "category": "conversation",
+      "text": "Let us take a short break",
+      "answer": false,
+      "actual": false,
+      "reason": "not_a_request",
+      "correct": true,
+      "routerMs": 0.0023999999999944066
+    },
+    {
+      "id": "social-7",
+      "category": "conversation",
+      "text": "Thanks that answers my question",
+      "answer": false,
+      "actual": false,
+      "reason": "not_a_request",
+      "correct": true,
+      "routerMs": 0.002600000000001046
+    },
+    {
+      "id": "social-8",
+      "category": "conversation",
+      "text": "Can you see the slides?",
+      "answer": false,
+      "actual": true,
+      "reason": "explicit_question",
+      "correct": false,
+      "routerMs": 0.003200000000006753
+    },
+    {
+      "id": "narration-1",
+      "category": "conversation",
+      "text": "How we handled caching is covered in the design document",
+      "answer": false,
+      "actual": false,
+      "reason": "not_a_request",
+      "correct": true,
+      "routerMs": 0.0037000000000091404
+    },
+    {
+      "id": "narration-2",
+      "category": "conversation",
+      "text": "Why the loss increased is still unclear",
+      "answer": false,
+      "actual": false,
+      "reason": "not_a_request",
+      "correct": true,
+      "routerMs": 0.0027000000000043656
+    },
+    {
+      "id": "narration-3",
+      "category": "conversation",
+      "text": "When I deployed the patch the error rate dropped",
+      "answer": false,
+      "actual": false,
+      "reason": "not_a_request",
+      "correct": true,
+      "routerMs": 0.0030000000000001137
+    },
+    {
+      "id": "narration-4",
+      "category": "conversation",
+      "text": "So the answer is to retry with an idempotency key",
+      "answer": false,
+      "actual": false,
+      "reason": "not_a_request",
+      "correct": true,
+      "routerMs": 0.08400000000000318
+    },
+    {
+      "id": "hard-1",
+      "category": "hard",
+      "text": "Find the remainder when seven to the power two thousand twenty six is divided by one thousand",
+      "answer": true,
+      "actual": false,
+      "reason": "not_a_request",
+      "correct": false,
+      "routerMs": 0.004699999999999704
+    },
+    {
+      "id": "hard-2",
+      "category": "hard",
+      "text": "Prove that this estimator is unbiased and derive its variance under correlated observations",
+      "answer": true,
+      "actual": false,
+      "reason": "not_a_request",
+      "correct": false,
+      "routerMs": 0.0033000000000100727
+    },
+    {
+      "id": "hard-3",
+      "category": "hard",
+      "text": "How would you derive the evidence lower bound for a variational autoencoder?",
+      "answer": true,
+      "actual": true,
+      "reason": "explicit_question",
+      "correct": true,
+      "routerMs": 0.005400000000008731
+    },
+    {
+      "id": "hard-4",
+      "category": "hard",
+      "text": "Solve this recurrence and justify the asymptotic bound",
+      "answer": true,
+      "actual": true,
+      "reason": "direct_request",
+      "correct": true,
+      "routerMs": 0.002600000000001046
+    },
+    {
+      "id": "mic-1",
+      "category": "conversation",
+      "text": "How would you solve the race condition?",
+      "source": "mic",
+      "answer": false,
+      "actual": false,
+      "reason": "mic_source",
+      "correct": true,
+      "routerMs": 0.003900000000001569
+    },
+    {
+      "id": "noise-1",
+      "category": "conversation",
+      "text": "What?",
+      "answer": false,
+      "actual": false,
+      "reason": "short_or_noisy",
+      "correct": true,
+      "routerMs": 0.001300000000000523
+    }
+  ]
+}

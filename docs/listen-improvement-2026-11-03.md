@@ -1,0 +1,65 @@
+# Automatic Listen improvement measurements
+
+Goal: improve relevance, personal grounding and speed. Ordinary first-useful-card
+targets are p50 <= 2,000 ms and p95 <= 4,000 ms from the end of speech. These
+targets are not achieved or verified by the routing results below. The older PRD
+has stricter launch gates; those gates remain distinct and unchanged.
+
+## Routing development baseline
+
+Run `node scripts/benchmark_listen_routing.mjs` from the repository root.
+The original 40 synthetic development cases cover coding, ML, personal questions,
+followups, ordinary conversation, microphone speech and hard requests. They are
+authored examples, not recorded calls or an independent evaluation set.
+
+| Measure | deterministic-v6 baseline | deterministic-v7 development |
+| --- | ---: | ---: |
+| Answer-worthy requests detected | 12/21 | 21/21 |
+| Unwanted answers | 5/19 | 0/19 |
+| Precision | 70.6% | 100% |
+| Recall | 57.1% | 100% |
+
+The saved JSON reports retain every case and decision. Local router execution
+times exclude audio capture, STT, knowledge retrieval, model generation and UI
+rendering. They cannot establish end-to-end speed or answer correctness.
+
+Changes: recognize questions after a setup sentence; suppress call logistics
+such as screen sharing and requests to wait or repeat; recognize mathematical
+imperatives; allow short followups only within 30 seconds of a successful answer.
+Off, microphone exclusion, duplicate suppression and cancellation still apply.
+The recent transcript supplies the previous subject to the answer model.
+
+Validation: 88 Node tests passed; TypeScript checking passed. This milestone
+does not update the running packaged binary. A fresh release build and runtime
+verification will follow the remaining pipeline changes.
+
+## Historical timing diagnostic
+
+Read-only aggregate of the existing local database on November 3, 2026:
+93 saved automatic attempts, all marked answered. Question-end-to-first-model-text
+p50 was 4,009 ms and p95 was 6,120 ms. Attempt-start-to-first-model-text p50 was
+1,605 ms and p95 was 2,885 ms. Across 351 transcribed system turns, audio-ready
+to final STT p50 was 1,139 ms and p95 was 2,951 ms.
+
+These are mixed historical sessions with different settings and audio origins.
+They do not prove on-screen usefulness, source support, correctness, or current
+model performance. Manual Answer now timings are excluded from the automatic
+summary. No private transcripts, profile data or credentials are in this report.
+
+Code inspection confirms live captions are display-only: the automatic answer
+path still waits for batch STT, transcript/ledger persistence and the configured
+pace delay. The answer model is therefore not the only latency source.
+
+## Remaining goal work
+
+- Evaluate separate realistic cases after freezing the development changes.
+- Measure current controlled audio-to-visible-useful-card latency, failures and
+  correctness; distinguish partial text from a useful answer.
+- Improve the largest measured pipeline delays while keeping finalized turns
+  durable and ordered, and preventing stale answers after stop or interruption.
+- Check actual answers against known coding/ML rubrics and synthetic personal
+  Prep sources, including missing facts, conflicting sources and followups.
+- Route difficult requests to sufficiently careful reasoning; evaluate math and
+  technical quality independently from ordinary-card speed.
+- Build and verify the packaged app; push subsequent tested milestones.
+- Leave real-call verification explicitly pending until the user tests it.

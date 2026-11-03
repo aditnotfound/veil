@@ -1,7 +1,7 @@
 import type { FinalUtterance } from "./session-core";
 
 export type AutoResponseMode = "off" | "on_question" | "after_pause";
-export const ROUTER_VERSION = "deterministic-v6";
+export const ROUTER_VERSION = "deterministic-v7";
 export const MAX_LIVE_GUIDANCE_CHARS = 240;
 export type DecisionReason =
   | "mode_off" | "mic_source" | "short_or_noisy" | "social_or_housekeeping"
@@ -23,7 +23,9 @@ export interface AnsweredTurn {
 const QUESTION_START = /^(who|what|when|where|why|how|which|whose|is|are|was|were|do|does|did|can|could|would|should|will|have|has|may)\b/i;
 const CLEAR_QUESTION_AFTER_LEAD_IN = /^(?:(?:who|what|when|where|why|how|which|whose)\s+(?:is|are|was|were|do|does|did|can|could|would|should|will|have|has|may)|(?:is|are|was|were|do|does|did|can|could|would|should|will|have|has|may))\b/i;
 const DECLARATIVE_WH_OPENING = /^(?:who|what|when|where|why|how|which)\s+(?:i|we|you|he|she|they|it|the|a|an|my|our|your|this|that)\b/i;
-const DIRECT_REQUEST = /^(tell me(?: about)?|explain|describe|walk me through|compare|summarize|help me|solve|show me|give me|outline)\b/i;
+const DIRECT_REQUEST = /^(tell me(?: about)?|explain|describe|walk me through|compare|summarize|help me|solve|show me|give me|outline|find|prove|derive|calculate)\b/i;
+const CALL_LOGISTICS = /^(?:(?:how are you|how's it going)(?: doing)?(?: today)?|(?:can|could|do) you (?:hear me|see (?:my|the) (?:screen|slides)|want me to share (?:my|the) screen)|(?:can|could|would) you (?:please )?repeat (?:that(?: last sentence)?|the last sentence|what you said)|give me (?:a|one) (?:second|minute|moment)(?: to .*)?)[?.!,\s]*$/i;
+const SHORT_FOLLOWUP = /^(?:why not|how so|(?:and|what about) [\p{L}\p{N}][\p{L}\p{N} -]{1,40})\??$/iu;
 const SOCIAL_OR_HOUSEKEEPING = /^(?:hi|hello|hey|thanks?|thank you|okay|ok|right|yeah|yep|nope|um|uh|hmm|can you hear me|are you there|how are you|do you have any questions|any questions|what time is it|what's the time)[?.!,\s]*$/i;
 const INVITATION_TO_TRY = /^(?:(?:do )?you want|would you like|(?:are you )?ready for) (?:a|another) (?:hard|harder|easy|easier|trick) one[?.!,\s]*$/i;
 const DISCOURSE_LEAD_IN = /^(?:well|so|okay|ok|right|but|and|uh|um)\b[,;:]?\s+/i;
@@ -53,6 +55,9 @@ function withoutDiscourseLeadIn(text: string): string {
 export function looksLikeQuestion(text: string): boolean {
   const trimmed = text.trim();
   const withoutLeadIn = withoutDiscourseLeadIn(trimmed);
+  // A single VAD segment can contain both the setup and the actual question.
+  const sentences = withoutLeadIn.split(/[.!?]\s+/);
+  if (sentences.length > 1 && looksLikeQuestion(sentences[sentences.length - 1])) return true;
   const lastQuestionMark = withoutLeadIn.lastIndexOf("?");
   if (lastQuestionMark >= 0 &&
       withoutLeadIn.length - lastQuestionMark - 1 <= MAX_TRAILING_CONTEXT_AFTER_QUESTION) {
@@ -105,12 +110,16 @@ export function routeCallTurn(
   const text = utterance.text.trim();
   const requestText = withoutDiscourseLeadIn(text);
   const normalized = normalizeTurn(text);
-  if (text.length > MAX_TURN_CHARS || normalized.split(" ").length < 3) {
+  const recentAnswer = lastAnswered && utterance.endedAt >= lastAnswered.endedAt &&
+    utterance.endedAt - lastAnswered.endedAt <= REPEAT_WINDOW_MS;
+  const contextualFollowup = Boolean(recentAnswer && SHORT_FOLLOWUP.test(text));
+  if (text.length > MAX_TURN_CHARS || (normalized.split(" ").length < 3 && !contextualFollowup)) {
     return silence("short_or_noisy");
   }
   const sentences = requestText.split(/[.!?]\s+/);
   const lastSentence = sentences[sentences.length - 1]?.trim() ?? requestText;
-  if (SOCIAL_OR_HOUSEKEEPING.test(requestText) || INVITATION_TO_TRY.test(lastSentence)) {
+  if (SOCIAL_OR_HOUSEKEEPING.test(requestText) || CALL_LOGISTICS.test(requestText) ||
+      CALL_LOGISTICS.test(lastSentence) || INVITATION_TO_TRY.test(lastSentence)) {
     return silence("social_or_housekeeping");
   }
   if (lastAnswered && normalized === lastAnswered.normalizedText &&
@@ -118,10 +127,10 @@ export function routeCallTurn(
       utterance.endedAt - lastAnswered.endedAt <= REPEAT_WINDOW_MS) {
     return silence("repeat_answered");
   }
-  if (looksLikeQuestion(text)) {
+  if (contextualFollowup || looksLikeQuestion(text)) {
     return { action: "short_answer", reason: "explicit_question", utteranceId: utterance.id };
   }
-  if (mode === "after_pause" && DIRECT_REQUEST.test(requestText)) {
+  if (mode === "after_pause" && (DIRECT_REQUEST.test(requestText) || DIRECT_REQUEST.test(lastSentence))) {
     return { action: "short_answer", reason: "direct_request", utteranceId: utterance.id };
   }
   return silence("not_a_request");
