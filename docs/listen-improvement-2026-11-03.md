@@ -129,6 +129,16 @@ paraphrase-only gap and relevance in real conversations remain unverified.
 
 ## Remaining goal work
 
+An additional exploratory set of 26 synthetic routing examples exposed four
+unwanted responses to meeting logistics and one missed "walk us through"
+request on `deterministic-v8`. The v9 router recognizes these narrow logistics
+and plural walkthrough requests; it routes all 26 development examples as
+labeled, and contrast tests preserve nearby technical questions. The set was
+used to change the router and is therefore not an independent evaluation; its
+labels are judgment calls and do not establish real-call precision or recall.
+It is reproducible with `node --experimental-strip-types
+scripts/benchmark_listen_routing.mjs OUTPUT tests/fixtures/listen-logistics-development.json`.
+
 On November 3, a synthetic spoken cross-validation question was played while
 Listen displayed active capture on the packaged `1ca3b9c` build. The UI showed
 no transcript or answer during the observation, so there is no usable latency or

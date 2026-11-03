@@ -40,6 +40,20 @@ test("conservative router stays silent for social speech and ordinary statements
   }
 });
 
+test("meeting logistics stay quiet without suppressing technical questions", () => {
+  for (const text of [
+    "Sorry, can you hear me now?", "Could you see me clearly?",
+    "Could we take five minutes to grab a drink?", "Can we move to the next slide?",
+    "What time is it on your side?",
+  ]) assert.equal(routeCallTurn(turn(text), "after_pause").action, "silence", text);
+
+  for (const text of [
+    "Can you hear me explain the data pipeline?", "Can we move to the next stage of training?",
+    "What time is it in UTC when the job completes?", "Sorry, why is the validation set leaking?",
+    "Walk us through debugging a memory leak in a Python service.",
+  ]) assert.equal(routeCallTurn(turn(text), "after_pause").action, "short_answer", text);
+});
+
 test("question mode accepts explicit questions without punctuation but not instructions", () => {
   for (const text of [
     "What is the calibration set used for", "How did your experiment control for leakage",

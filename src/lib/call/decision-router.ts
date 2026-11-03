@@ -1,7 +1,7 @@
 import type { FinalUtterance } from "./session-core";
 
 export type AutoResponseMode = "off" | "on_question" | "after_pause";
-export const ROUTER_VERSION = "deterministic-v8";
+export const ROUTER_VERSION = "deterministic-v9";
 export const MAX_LIVE_GUIDANCE_CHARS = 240;
 export type DecisionReason =
   | "mode_off" | "mic_source" | "short_or_noisy" | "social_or_housekeeping"
@@ -29,13 +29,16 @@ export interface AnsweredTurn {
 const QUESTION_START = /^(who|what|when|where|why|how|which|whose|is|are|was|were|do|does|did|can|could|would|should|will|have|has|may)\b/i;
 const CLEAR_QUESTION_AFTER_LEAD_IN = /^(?:(?:who|what|when|where|why|how|which|whose)\s+(?:is|are|was|were|do|does|did|can|could|would|should|will|have|has|may)|(?:is|are|was|were|do|does|did|can|could|would|should|will|have|has|may))\b/i;
 const DECLARATIVE_WH_OPENING = /^(?:who|what|when|where|why|how|which)\s+(?:i|we|you|he|she|they|it|the|a|an|my|our|your|this|that)\b/i;
-const DIRECT_REQUEST = /^(tell me(?: about)?|explain|describe|walk me through|compare|summarize|help me|solve|show me|give me|outline|find|prove|derive|calculate|compute)\b/i;
+const DIRECT_REQUEST = /^(tell me(?: about)?|explain|describe|walk (?:me|us) through|compare|summarize|help me|solve|show me|give me|outline|find|prove|derive|calculate|compute)\b/i;
 const ROUTINE_CONVERSATION = /^(?:(?:can|could) (?:you|everyone) (?:see (?:my|the) (?:screen|slides)|speak (?:a little )?(?:louder|slower))|find me (?:after|at) (?:the |our )?(?:meeting|call)(?:\b.*)?|have a (?:good|great|nice) (?:day|weekend|evening))[?.!,\s]*$/i;
 const CALL_LOGISTICS = /^(?:(?:how are you|how's it going)(?: doing)?(?: today)?|(?:can|could|do) you (?:hear me|see (?:my|the) (?:screen|slides)|want me to share (?:my|the) screen)|(?:can|could|would) you (?:please )?repeat (?:that(?: last sentence)?|the last sentence|what you said)|give me (?:a|one) (?:second|minute|moment)(?: to .*)?)[?.!,\s]*$/i;
+// These questions ask participants to perform a physical meeting action or
+// check call logistics; a generated answer would generally interrupt them.
+const MEETING_LOGISTICS = /^(?:(?:can|could) you (?:hear me|see me)(?: (?:now|okay|clearly|all right))?|(?:can|could|shall) we (?:take (?:a|five|ten|two|three|[0-9]+) (?:minute|minutes|moment|break)(?:s)?(?: to (?:grab|get) (?:a|some) (?:drink|water|coffee))?|(?:move|go) (?:on )?to (?:the )?next slide)|what time is it (?:there|for you|on your side))[?.!,\s]*$/i;
 const SHORT_FOLLOWUP = /^(?:(?:why not|how so)\??|(?:and|what about) [\p{L}\p{N}][\p{L}\p{N} -]{1,40}\?)$/iu;
 const SOCIAL_OR_HOUSEKEEPING = /^(?:hi|hello|hey|thanks?|thank you|okay|ok|right|yeah|yep|nope|um|uh|hmm|can you hear me|are you there|how are you|do you have any questions|any questions|what time is it|what's the time)[?.!,\s]*$/i;
 const INVITATION_TO_TRY = /^(?:(?:do )?you want|would you like|(?:are you )?ready for) (?:a|another) (?:hard|harder|easy|easier|trick) one[?.!,\s]*$/i;
-const DISCOURSE_LEAD_IN = /^(?:well|so|okay|ok|right|but|and|uh|um)\b[,;:]?\s+/i;
+const DISCOURSE_LEAD_IN = /^(?:well|so|okay|ok|right|but|and|uh|um|sorry)\b[,;:]?\s+/i;
 const CONTEXT_LEAD_IN = /^(?:in|for|with|regarding)\s+[^,]{2,60},\s*/i;
 // ASR sometimes writes spoken "why" as the letter y in a context-framed question.
 const ASR_WHY_QUESTION = /^y\s+(?:is|are|was|were|do|does|did|can|could|would|should|will)\b.{12,200}\b(?:risky|unsafe|problematic|bad|wrong|different|important|useful|necessary|needed|faster|slower|better|worse)[.!?]?\s*$/i;
@@ -139,9 +142,9 @@ export function routeCallTurn(
   }
   const sentences = requestText.split(/[.!?]\s+/);
   const lastSentence = sentences[sentences.length - 1]?.trim() ?? requestText;
-  if (SOCIAL_OR_HOUSEKEEPING.test(requestText) || CALL_LOGISTICS.test(requestText) ||
+  if (SOCIAL_OR_HOUSEKEEPING.test(requestText) || CALL_LOGISTICS.test(requestText) || MEETING_LOGISTICS.test(requestText) ||
       ROUTINE_CONVERSATION.test(requestText) || CALL_LOGISTICS.test(lastSentence) ||
-      ROUTINE_CONVERSATION.test(lastSentence) || INVITATION_TO_TRY.test(lastSentence)) {
+      MEETING_LOGISTICS.test(lastSentence) || ROUTINE_CONVERSATION.test(lastSentence) || INVITATION_TO_TRY.test(lastSentence)) {
     return silence("social_or_housekeeping");
   }
   if (lastAnswered && normalized === lastAnswered.normalizedText &&
