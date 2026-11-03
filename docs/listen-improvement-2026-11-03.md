@@ -129,6 +129,16 @@ paraphrase-only gap and relevance in real conversations remain unverified.
 
 ## Remaining goal work
 
+On November 3, a synthetic spoken cross-validation question was played while
+Listen displayed active capture on the packaged `1ca3b9c` build. The UI showed
+no transcript or answer during the observation, so there is no usable latency or
+quality measurement. The capture shortcut did not stop Listen: inspection found
+that the registered callback omitted `capturing` from its effect dependencies.
+The test process was terminated to stop the microphone and loopback capture.
+The callback now updates when capture state changes. The shortcut fix and audio
+routing still need verification in a new packaged build; the interrupted empty
+session is not treated as a successful or complete call.
+
 - Evaluate separate realistic cases after freezing the development changes.
 - Measure current controlled audio-to-visible-useful-card latency, failures and
   correctness; distinguish partial text from a useful answer.

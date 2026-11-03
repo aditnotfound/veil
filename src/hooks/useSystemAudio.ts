@@ -1906,7 +1906,7 @@ export function useSystemAudio() {
         await startCapture();
       }
     });
-  }, [startCapture, stopCapture]);
+  }, [capturing, startCapture, stopCapture, globalShortcuts.registerSystemAudioCallback]);
 
   useEffect(() => {
     return () => {
