@@ -37,7 +37,7 @@ import { appendCallSessionLedger } from "@/lib/database/call-session-ledger.acti
 import { deleteCallSessionPlanRevision, saveCallSessionPlan } from "@/lib/database/call-session-plan.action";
 import type { AnswerStreamEvent } from "@/lib/call/answer-card";
 import { buildJevShadowRequest, requestJevShadow, type JevShadowResult } from "@/lib/call/jev-shadow";
-import { transcribeWithRetry, timeoutForWav } from "@/lib/call/transcribe-with-retry";
+import { transcribeWithHedge, transcribeWithRetry, timeoutForWav, isShortWavForHedge } from "@/lib/call/transcribe-with-retry";
 import { DeepgramLiveCaptions, pcm16FromBase64, pcm16FromFloat, type CaptionStatus } from "@/lib/call/deepgram-live-captions";
 import { OpenAILiveCaptions } from "@/lib/call/openai-live-captions";
 import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, selectCallAnswerPlan, deepCallPrompt, shouldCancelAnswerForDecision, shouldSkipDelayedDecision, MAX_LIVE_GUIDANCE_CHARS, type AnsweredTurn, type AutoResponseMode, type CallDecision } from "@/lib/call/decision-router";
@@ -766,12 +766,19 @@ export function useSystemAudio() {
             setIsProcessing(true);
 
             try {
-              const transcription = await transcribeWithRetry((signal) => fetchSTT({
+              const transcribe = (signal: AbortSignal) => fetchSTT({
                 provider: providerConfig,
                 selectedProvider: selectedSttProvider,
                 audio: audioBlob,
                 signal,
-              }), sttSessionSignal, timeoutForWav(bytes));
+              });
+              // A second request can reduce long OpenAI tail delays for short
+              // clips. It has an extra provider cost, and is canceled on stop.
+              const hedge = !usePluelyAPI && selectedSttProvider.provider === "openai-whisper" &&
+                isShortWavForHedge(bytes);
+              const transcription = await (hedge ? transcribeWithHedge : transcribeWithRetry)(
+                transcribe, sttSessionSignal, timeoutForWav(bytes)
+              );
 
               timing.audioToSttMs = performance.now() - audioReadyPerf;
               sttStarted = false;

@@ -209,6 +209,41 @@ data is often used for tuning. Neither case establishes percentile performance
 or overall answer quality. Three cases are far below the 20-case ordinary
 benchmark minimum, and none was a live conversation with another person.
 
+## Further spoken development run
+
+The v9 packaged build was exercised with a predeclared synthetic inventory of
+20 ordinary prompts, five quiet utterances, and two reasoning prompts. The
+selected mode was `on_question`, which is narrower than the fixture's original
+`after_pause` routing diagnostic. Eighteen ordinary cases had useful
+accessibility-observed text within their observation windows, one slow
+cross-validation answer was generated after its window, and the direct
+"walk us through" request was intentionally silent in question-only mode.
+These are not 20 independent visible-usefulness passes. Observation was via a
+Windows accessibility tree, which does not establish physical screen visibility.
+
+The latest reviewed useful snapshots for the 18 observed cases had a 4,926 ms
+median from estimated detected speech end, ranging from 4,067 to 6,042 ms. These
+are sampled upper bounds for those snapshots, not a first-useful latency
+distribution; they omit the delayed case and the unanswered instruction. Among
+19 generated ordinary answers, first provider text had a 3,953 ms median and a
+16,243 ms maximum. That is not a visible-useful metric. The 16,243 ms outlier
+included 13,431 ms from audio-ready to final STT. All five synthetic logistics
+or ordinary-conversation utterances stayed silent in these checks. The
+patient-grouping follow-up was coherent, and two fictional personal questions
+were answered without inventing facts; these are not evidence of general Prep
+retrieval quality. A synthetic counting problem produced the correct answer 84
+in the saved card, but its first visible time was not observed; a separate
+proof instruction was silent in question-only mode. Playback is not a real call.
+
+For short PCM system-audio clips sent to the configured OpenAI STT provider,
+the next revision starts at most one duplicate request to that same provider
+after three seconds if the first is still pending. The first successful result
+wins and the other is canceled; stopping the session aborts both. Long clips and
+other STT providers retain the existing retry path. This can incur a second
+transcription charge and does not guarantee lower latency. Unit tests cover fast
+success, slow rescue, both winners, failures, and cancellation; an actual
+packaged before/after test of the tail improvement remains necessary.
+
 - Evaluate separate realistic cases after freezing the development changes.
 - Measure current controlled audio-to-visible-useful-card latency, failures and
   correctness; distinguish partial text from a useful answer.
