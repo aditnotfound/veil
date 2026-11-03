@@ -226,18 +226,34 @@ async fn run_vad_capture(
     let mut last_speech_at = None;
     let max_samples = sr as usize * 30; // 30s safety cap per utterance
     let mut live_frame = Vec::with_capacity((sr / 5) as usize);
+    let mut idle = super::vad_idle::VadIdle::default();
+    let mut idle_tick = tokio::time::interval(Duration::from_millis(100));
+    idle_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-    while let Some(sample) = stream.next().await {
-        if live_captions.load(Ordering::Relaxed) {
-            live_frame.push(sample);
-            if live_frame.len() >= (sr / 5) as usize {
-                emit_pcm_frame(&app, sr, &live_frame);
-                live_frame.clear();
+    loop {
+        tokio::select! {
+            biased;
+            sample = stream.next() => {
+                let Some(sample) = sample else { break; };
+                idle.on_audio();
+                if live_captions.load(Ordering::Relaxed) {
+                    live_frame.push(sample);
+                    if live_frame.len() >= (sr / 5) as usize {
+                        emit_pcm_frame(&app, sr, &live_frame);
+                        live_frame.clear();
+                    }
+                } else {
+                    live_frame.clear();
+                }
+                buffer.push_back(sample);
             }
-        } else {
-            live_frame.clear();
+            _ = idle_tick.tick(), if in_speech => {
+                if !idle.on_tick() { continue; }
+                // Some loopback devices stop sending packets during idle. Feed
+                // bounded silence to VAD only; do not fabricate live PCM frames.
+                buffer.extend(std::iter::repeat(0.0).take((sr / 10) as usize));
+            }
         }
-        buffer.push_back(sample);
 
         // Process in fixed chunks for VAD analysis
         while buffer.len() >= config.hop_size {

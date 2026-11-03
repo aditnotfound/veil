@@ -20,6 +20,7 @@ use linux::{SpeakerInput as PlatformSpeakerInput, SpeakerStream as PlatformSpeak
 
 mod commands;
 mod live_frame;
+mod vad_idle;
 #[cfg(target_os = "windows")]
 mod idle_wait;
 

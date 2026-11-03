@@ -150,6 +150,36 @@ packaged playback test is still required. The WASAPI dependency reports all
 non-signaled waits as timeouts, so a permanently broken event handle cannot yet
 be distinguished from an idle output device by this logic.
 
+## Targeted synthetic playback after the capture fix
+
+The packaged `fc1938e` build started and stopped Listen using Ctrl+Shift+M. The
+first attempt played to the Windows default output while Veil had a different
+explicit output selected, so it produced no system transcript. A subsequent
+original synthetic cross-validation question was rendered to Veil's selected
+speakers after more than five seconds of silence. Both system and microphone
+transcripts appeared; the microphone picked up the speaker playback. The
+automatic answer correctly explained validation-fold leakage and fold-local
+scaling. Capture was then stopped and the UI returned to its idle state.
+
+This single diagnostic is not a live call, a p50/p95 result, or a measured
+first-useful-visible time. From playback end to first provider text was 8,864 ms;
+the first provider chunk was just `F`. Final STT took 1,889 ms from audio-ready,
+the subsequent wait was 320 ms, and answer start to first provider text was
+2,887 ms. Audio-ready occurred 3,768 ms after playback ended. The detected last
+speech time was 704 ms earlier than playback end, so the recorded
+question-end-to-first-chunk was 9,568 ms. The full answer was inspected in the
+window later, but its first useful on-screen timestamp was not captured.
+
+An independent Windows loopback probe of the same selected speaker observed
+packets during the synthetic playback but none after it became idle. Veil's VAD
+previously advanced its silence counter only when samples arrived, which can
+delay finalizing the question after the device stops delivering packets. The new
+idle clock injects bounded VAD-only silence after two 100 ms ticks without real
+samples while a speech segment is active; real audio resets the clock. It does
+not inject fabricated PCM into the live-caption stream. Simulated idle and
+resumption tests do not prove safety under real device jitter or establish the
+latency improvement; packaged before/after tests are still required.
+
 - Evaluate separate realistic cases after freezing the development changes.
 - Measure current controlled audio-to-visible-useful-card latency, failures and
   correctness; distinguish partial text from a useful answer.
