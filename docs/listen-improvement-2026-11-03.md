@@ -44,6 +44,15 @@ wrong and not necessarily spoken; it is not evidence for personal claims.
 Later, canceled, missing, cross-session and same-turn suggestions are excluded.
 Tests check construction and boundaries, not whether a model uses the context well.
 
+Clearly marked proof, derivation, AIME and multi-step math requests now select
+the deep answer profile for automatic and manual answers. This uses the configured
+deep-model override when supplied, keeps guidance bounded, and retains the draft
+and grounding instructions. Ordinary requests keep the existing short or guided
+profile. Detection is heuristic and can miss difficult work; a selected provider's
+explicit reasoning settings are preserved. The automatic deep result streams in
+the existing answer card and remains unverified. Unit tests cover routing and
+prompt choice; actual mathematical correctness and elapsed time remain unmeasured.
+
 Validation: 88 Node tests passed; TypeScript checking passed. This milestone
 does not update the running packaged binary. A fresh release build and runtime
 verification will follow the remaining pipeline changes.

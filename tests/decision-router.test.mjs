@@ -1,6 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, callCardPrompt, deepCallPrompt, shouldCancelAnswerForDecision, MAX_LIVE_GUIDANCE_CHARS } from "../src/lib/call/decision-router.ts";
+import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, callCardPrompt, deepCallPrompt, selectCallAnswerPlan, shouldCancelAnswerForDecision, MAX_LIVE_GUIDANCE_CHARS } from "../src/lib/call/decision-router.ts";
+
+test("proofs and multistep math use a careful profile while ordinary questions stay fast", () => {
+  for (const text of ["Prove that the estimator is unbiased", "Find the remainder of 7 to the power 2026 modulo 1000", "Derive the gradient of cross entropy", "Solve this AIME problem"]) {
+    const plan = selectCallAnswerPlan(text, "Base", "Show the steps");
+    assert.equal(plan.profile, "deep", text);
+    assert.match(plan.prompt, /step by step/);
+    assert.match(plan.prompt, /Show the steps/);
+    assert.doesNotMatch(plan.prompt, /at most 60 words/);
+  }
+  assert.equal(selectCallAnswerPlan("Why use a database index?", "Base").profile, "live-short");
+  assert.equal(selectCallAnswerPlan("Explain overfitting", "Base", "Use an example").profile, "live-guided");
+});
 
 const turn = (text, source = "system", endedAt = 10_000) => ({
   id: `call:${source}:1`, sessionId: "call", source, sequence: 1,

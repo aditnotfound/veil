@@ -40,7 +40,7 @@ import { buildJevShadowRequest, requestJevShadow, type JevShadowResult } from "@
 import { transcribeWithRetry, timeoutForWav } from "@/lib/call/transcribe-with-retry";
 import { DeepgramLiveCaptions, pcm16FromBase64, pcm16FromFloat, type CaptionStatus } from "@/lib/call/deepgram-live-captions";
 import { OpenAILiveCaptions } from "@/lib/call/openai-live-captions";
-import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, callCardPrompt, deepCallPrompt, shouldCancelAnswerForDecision, MAX_LIVE_GUIDANCE_CHARS, type AnsweredTurn, type AutoResponseMode, type CallDecision } from "@/lib/call/decision-router";
+import { routeCallTurn, routeSequencedSystemTurn, normalizeTurn, selectCallAnswerPlan, deepCallPrompt, shouldCancelAnswerForDecision, MAX_LIVE_GUIDANCE_CHARS, type AnsweredTurn, type AutoResponseMode, type CallDecision } from "@/lib/call/decision-router";
 import { formatSessionLedgerEvidence, selectSessionLedgerEntries } from "@/lib/call/session-ledger";
 import { buildSessionPlannerSnapshot, formatSessionPlanEvidence, parseSessionPlan, SESSION_PLANNER_MILESTONE, SESSION_PLANNER_PROMPT, SessionPlannerCoordinator, type ActiveSessionPlan } from "@/lib/call/session-planner";
 import { selectedModelName, withModelOverride } from "@/lib/call/deep-provider";
@@ -880,10 +880,11 @@ export function useSystemAudio() {
 
                     const previousMessages = callCoreRef.current.historyBefore(utterance.id);
                     const activeGuidance = liveAnswerGuidanceRef.current;
+                    const answerPlan = selectCallAnswerPlan(transcription, effectiveSystemPrompt, activeGuidance);
 
                     const answered = await processWithAI(
                       transcription.trim(),
-                      callCardPrompt(effectiveSystemPrompt, activeGuidance),
+                      answerPlan.prompt,
                       previousMessages,
                       job,
                       (firstChunkPerf) => {
@@ -893,7 +894,7 @@ export function useSystemAudio() {
                         timing.audioToFirstChunkMs = firstChunkPerf - audioReadyPerf;
                       },
                       utterance.id,
-                      activeGuidance ? "live-guided" : "live-short"
+                      answerPlan.profile
                     );
                     timing.answerTotalMs = performance.now() - answerStartedPerf;
                     outcome = !job.isCurrent() ? "canceled" : answered ? "answered" : "failed";
@@ -1176,7 +1177,7 @@ export function useSystemAudio() {
       existingJob?: AnswerJob,
       onFirstChunk?: (at: number) => void,
       answerTurnId?: string,
-      responseProfile: "live-short" | "live-guided" = "live-short"
+      responseProfile: "live-short" | "live-guided" | "deep" = "live-short"
     ) => {
       const job = existingJob ?? callCoreRef.current.beginAnswer();
       if (!job.isCurrent()) return false;
@@ -1206,6 +1207,8 @@ export function useSystemAudio() {
         const provider = allAiProviders.find(
           (p) => p.id === selectedAIProvider.provider
         );
+        const answerProvider = responseProfile === "deep"
+          ? withModelOverride(selectedAIProvider, deepModelOverride) : selectedAIProvider;
         if (!provider && !usePluelyAPI) {
           setError("AI provider config not found.");
           return false;
@@ -1259,7 +1262,7 @@ export function useSystemAudio() {
         try {
           for await (const chunk of fetchAIResponse({
             provider: usePluelyAPI ? undefined : provider,
-            selectedProvider: selectedAIProvider,
+            selectedProvider: answerProvider,
             systemPrompt: prompt,
             history: historyWithEvidence,
             historyOrder: "chronological",
@@ -1324,7 +1327,7 @@ export function useSystemAudio() {
           };
           succeeded = true;
           if (sessionId && answerTurnId) {
-            const variables = selectedAIProvider.variables ?? {};
+            const variables = answerProvider.variables ?? {};
             const model = variables.model || variables.MODEL ||
               variables.deployment || variables.deployment_name || "";
             try {
@@ -1360,7 +1363,7 @@ export function useSystemAudio() {
       }
       return succeeded;
     },
-    [selectedAIProvider, allAiProviders, clearAttachedScreenshot, fastOpenAIAnswers]
+    [selectedAIProvider, allAiProviders, clearAttachedScreenshot, fastOpenAIAnswers, deepModelOverride]
   );
 
   const answerLatestSystemTurn = useCallback(async () => {
@@ -1405,10 +1408,11 @@ export function useSystemAudio() {
       ? systemPrompt || DEFAULT_SYSTEM_PROMPT
       : contextContent || DEFAULT_SYSTEM_PROMPT;
     const activeGuidance = liveAnswerGuidanceRef.current;
+    const answerPlan = selectCallAnswerPlan(turn.text, effectiveSystemPrompt, activeGuidance);
     try {
       const answered = await processWithAI(
         turn.text,
-        callCardPrompt(effectiveSystemPrompt, activeGuidance),
+        answerPlan.prompt,
         callCoreRef.current.historyBefore(turn.id),
         job,
         (firstChunkPerf) => {
@@ -1417,7 +1421,7 @@ export function useSystemAudio() {
           timing.audioToFirstChunkMs = answerStartedAt - audioReadyAt + timing.answerToFirstChunkMs;
         },
         turn.id,
-        activeGuidance ? "live-guided" : "live-short"
+        answerPlan.profile
       );
       timing.answerTotalMs = performance.now() - answerStartedPerf;
       timing.status = !job.isCurrent() ? "canceled" : answered ? "answered" : "answer_error";

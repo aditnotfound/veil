@@ -94,7 +94,19 @@ export function callCardPrompt(basePrompt: string, liveGuidance = ""): string {
 }
 
 export function deepCallPrompt(basePrompt: string): string {
-  return `${basePrompt}\n\nDeep call answer rules: Expand the initial suggestion into a careful working answer. Start with the direct conclusion or best current approach, state material assumptions, and work through the reasoning step by step. Distinguish retrieved evidence from your own reasoning and cite supplied [C:id] or [K:id] markers for call-specific or personal facts. For math, check algebra, edge cases, and whether the argument proves the requested claim. For technical questions, identify limitations and concrete verification steps. If evidence or constraints are missing, say exactly what is missing. This response is a draft: never describe it as checked, proven, verified, or final unless an actual external verification result is supplied.`;
+  return `${basePrompt}\n\nDeep call answer rules: Give a careful working answer to the question, expanding any initial suggestion if one was supplied. Start with the direct conclusion or best current approach, state material assumptions, and work through the reasoning step by step. Distinguish retrieved evidence from your own reasoning and cite supplied [C:id] or [K:id] markers for call-specific or personal facts. For math, check algebra, edge cases, and whether the argument proves the requested claim. For technical questions, identify limitations and concrete verification steps. If evidence or constraints are missing, say exactly what is missing. This response is a draft: never describe it as checked, proven, verified, or final unless an actual external verification result is supplied.`;
+}
+
+/** Prefer a careful draft for explicit proofs and multi-step technical work. */
+export function selectCallAnswerPlan(text: string, basePrompt: string, guidance = ""): {
+  profile: "live-short" | "live-guided" | "deep"; prompt: string;
+} {
+  const hard = /\b(?:prove|disprove|proof|derive|derivation|aime|olympiad|modular arithmetic|recurrence relation|expected value|evidence lower bound|elbo)\b/i.test(text) ||
+    /\b(?:solve|calculate|compute|find)\b.{0,160}\b(?:remainder|modulo|modulus|probability|variance|integral|recurrence|number of ways)\b/i.test(text);
+  if (!hard) return { profile: guidance.trim() ? "live-guided" : "live-short", prompt: callCardPrompt(basePrompt, guidance) };
+  const bounded = guidance.trim().slice(0, MAX_LIVE_GUIDANCE_CHARS);
+  return { profile: "deep", prompt: deepCallPrompt(basePrompt) + (bounded
+    ? `\n\nActive guidance typed by the user for this session: ${JSON.stringify(bounded)}. Apply it while preserving the grounding rules.` : "") };
 }
 
 /** A conservative, local routing baseline. Unsupported action types remain silent. */
