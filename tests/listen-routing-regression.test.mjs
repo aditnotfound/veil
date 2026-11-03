@@ -4,8 +4,9 @@ import { readFileSync } from "node:fs";
 import { routeCallTurn } from "../src/lib/call/decision-router.ts";
 
 const corpus = JSON.parse(readFileSync(new URL("./fixtures/listen-realistic-cases.json", import.meta.url), "utf8"));
+const challenge = JSON.parse(readFileSync(new URL("./fixtures/listen-challenge-cases.json", import.meta.url), "utf8"));
 test("realistic development replay preserves request intent and silence", () => {
-  for (const item of corpus.cases) {
+  for (const item of [...corpus.cases, ...challenge.cases]) {
     const utterance = { id: item.id, sessionId: "test", source: item.source ?? "system", sequence: 2,
       startedAt: 20000, endedAt: 22000, text: item.text };
     const prior = item.previousAnswer ? { normalizedText: "previous question", endedAt: 19000 } : null;

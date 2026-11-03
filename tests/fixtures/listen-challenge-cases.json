@@ -1,0 +1,32 @@
+{
+  "description": "Additional synthetic challenge set authored after the initial development cases; labels represent routing intent, not model correctness or audio latency.",
+  "cases": [
+    {"id":"c1","category":"coding","text":"Suppose the queue delivers every event twice. How can I prevent duplicate side effects?","answer":true},
+    {"id":"c2","category":"coding","text":"A hash map has average constant lookup time. When does that assumption break down","answer":true},
+    {"id":"c3","category":"coding","text":"Show me how to avoid a deadlock when two workers update accounts","answer":true},
+    {"id":"c4","category":"coding","text":"Would adding an index always speed up writes?","answer":true},
+    {"id":"m1","category":"ml","text":"In an imbalanced cancer classifier, why can accuracy hide poor recall?","answer":true},
+    {"id":"m2","category":"ml","text":"Describe how to tune a threshold without leaking the test set","answer":true},
+    {"id":"m3","category":"ml","text":"The train loss drops but validation loss rises. What are two possible explanations","answer":true},
+    {"id":"p1","category":"personal","text":"How did you contribute to the wildfire project?","answer":true},
+    {"id":"p2","category":"personal","text":"What was your strongest result and how confident are you in it?","answer":true},
+    {"id":"p3","category":"personal","text":"Could you summarize your experience building local AI tools","answer":true},
+    {"id":"f1","category":"followup","text":"What about latency?","previousAnswer":"Batch the writes to increase throughput.","answer":true},
+    {"id":"f2","category":"followup","text":"Why not?","previousAnswer":"We should use a grouped split.","answer":true},
+    {"id":"f3","category":"followup","text":"And then we can take a break","previousAnswer":"We should use a grouped split.","answer":false},
+    {"id":"f4","category":"followup","text":"And thanks for explaining that","previousAnswer":"We should use a grouped split.","answer":false},
+    {"id":"f5","category":"followup","text":"And memory","answer":false},
+    {"id":"n1","category":"conversation","text":"Please hold on while I get my notes","answer":false},
+    {"id":"n2","category":"conversation","text":"Can everyone see my screen?","answer":false},
+    {"id":"n3","category":"conversation","text":"Could you speak a little louder?","answer":false},
+    {"id":"n4","category":"conversation","text":"Find me after the meeting and we can talk","answer":false},
+    {"id":"n5","category":"conversation","text":"This section explains why the model was too slow","answer":false},
+    {"id":"n6","category":"conversation","text":"The benchmark passed on Tuesday and the release is ready","answer":false},
+    {"id":"n7","category":"conversation","text":"I asked how the index works. The speaker explained it in detail.","answer":false},
+    {"id":"n8","category":"conversation","text":"Have a good weekend!","answer":false},
+    {"id":"h1","category":"hard","text":"Prove or disprove that every bounded sequence is convergent","answer":true},
+    {"id":"h2","category":"hard","text":"Compute the probability of exactly two collisions when throwing balls into bins","answer":true},
+    {"id":"h3","category":"hard","text":"Derive the gradient of binary cross entropy with respect to the logit","answer":true},
+    {"id":"mic","category":"conversation","text":"What is the data leakage risk?","source":"mic","answer":false}
+  ]
+}

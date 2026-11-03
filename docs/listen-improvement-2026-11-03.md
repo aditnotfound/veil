@@ -23,6 +23,14 @@ The saved JSON reports retain every case and decision. Local router execution
 times exclude audio capture, STT, knowledge retrieval, model generation and UI
 rendering. They cannot establish end-to-end speed or answer correctness.
 
+A later 27-case synthetic challenge exposed seven mistakes in v7: six unwanted
+cards and one missed request. The v8 changes correct those examples while the
+original development suite still passes. Because v8 was adjusted using this
+challenge, it is now a development set too; its 27/27 result is not independent
+evidence of generalization. Punctuation-free short followups such as “and
+memory” are deliberately suppressed unless a question mark is present; “why
+not” and “how so” still work without punctuation after a recent answer.
+
 Changes: recognize questions after a setup sentence; suppress call logistics
 such as screen sharing and requests to wait or repeat; recognize mathematical
 imperatives; allow short followups only within 30 seconds of a successful answer.

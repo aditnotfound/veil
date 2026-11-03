@@ -1,0 +1,289 @@
+{
+  "routerVersion": "deterministic-v8",
+  "description": "Additional synthetic challenge set authored after the initial development cases; labels represent routing intent, not model correctness or audio latency.",
+  "mode": "after_pause",
+  "total": 27,
+  "truePositive": 15,
+  "falsePositive": 0,
+  "falseNegative": 0,
+  "precision": 1,
+  "recall": 1,
+  "timingScope": "Local routing only; excludes audio capture, STT, retrieval, model generation and visible rendering.",
+  "cases": [
+    {
+      "id": "c1",
+      "category": "coding",
+      "text": "Suppose the queue delivers every event twice. How can I prevent duplicate side effects?",
+      "answer": true,
+      "actual": true,
+      "reason": "explicit_question",
+      "correct": true,
+      "routerMs": 2.1029000000000053
+    },
+    {
+      "id": "c2",
+      "category": "coding",
+      "text": "A hash map has average constant lookup time. When does that assumption break down",
+      "answer": true,
+      "actual": true,
+      "reason": "explicit_question",
+      "correct": true,
+      "routerMs": 0.5176999999999907
+    },
+    {
+      "id": "c3",
+      "category": "coding",
+      "text": "Show me how to avoid a deadlock when two workers update accounts",
+      "answer": true,
+      "actual": true,
+      "reason": "direct_request",
+      "correct": true,
+      "routerMs": 0.5308000000000135
+    },
+    {
+      "id": "c4",
+      "category": "coding",
+      "text": "Would adding an index always speed up writes?",
+      "answer": true,
+      "actual": true,
+      "reason": "explicit_question",
+      "correct": true,
+      "routerMs": 0.03470000000000084
+    },
+    {
+      "id": "m1",
+      "category": "ml",
+      "text": "In an imbalanced cancer classifier, why can accuracy hide poor recall?",
+      "answer": true,
+      "actual": true,
+      "reason": "explicit_question",
+      "correct": true,
+      "routerMs": 0.02729999999999677
+    },
+    {
+      "id": "m2",
+      "category": "ml",
+      "text": "Describe how to tune a threshold without leaking the test set",
+      "answer": true,
+      "actual": true,
+      "reason": "direct_request",
+      "correct": true,
+      "routerMs": 0.05760000000000787
+    },
+    {
+      "id": "m3",
+      "category": "ml",
+      "text": "The train loss drops but validation loss rises. What are two possible explanations",
+      "answer": true,
+      "actual": true,
+      "reason": "explicit_question",
+      "correct": true,
+      "routerMs": 0.014099999999999113
+    },
+    {
+      "id": "p1",
+      "category": "personal",
+      "text": "How did you contribute to the wildfire project?",
+      "answer": true,
+      "actual": true,
+      "reason": "explicit_question",
+      "correct": true,
+      "routerMs": 0.012599999999991951
+    },
+    {
+      "id": "p2",
+      "category": "personal",
+      "text": "What was your strongest result and how confident are you in it?",
+      "answer": true,
+      "actual": true,
+      "reason": "explicit_question",
+      "correct": true,
+      "routerMs": 0.02949999999999875
+    },
+    {
+      "id": "p3",
+      "category": "personal",
+      "text": "Could you summarize your experience building local AI tools",
+      "answer": true,
+      "actual": true,
+      "reason": "explicit_question",
+      "correct": true,
+      "routerMs": 0.029900000000012028
+    },
+    {
+      "id": "f1",
+      "category": "followup",
+      "text": "What about latency?",
+      "previousAnswer": "Batch the writes to increase throughput.",
+      "answer": true,
+      "actual": true,
+      "reason": "explicit_question",
+      "correct": true,
+      "routerMs": 1.2804000000000002
+    },
+    {
+      "id": "f2",
+      "category": "followup",
+      "text": "Why not?",
+      "previousAnswer": "We should use a grouped split.",
+      "answer": true,
+      "actual": true,
+      "reason": "explicit_question",
+      "correct": true,
+      "routerMs": 1.1012999999999948
+    },
+    {
+      "id": "f3",
+      "category": "followup",
+      "text": "And then we can take a break",
+      "previousAnswer": "We should use a grouped split.",
+      "answer": false,
+      "actual": false,
+      "reason": "not_a_request",
+      "correct": true,
+      "routerMs": 0.6063000000000045
+    },
+    {
+      "id": "f4",
+      "category": "followup",
+      "text": "And thanks for explaining that",
+      "previousAnswer": "We should use a grouped split.",
+      "answer": false,
+      "actual": false,
+      "reason": "not_a_request",
+      "correct": true,
+      "routerMs": 0.22740000000000293
+    },
+    {
+      "id": "f5",
+      "category": "followup",
+      "text": "And memory",
+      "answer": false,
+      "actual": false,
+      "reason": "short_or_noisy",
+      "correct": true,
+      "routerMs": 0.03519999999998902
+    },
+    {
+      "id": "n1",
+      "category": "conversation",
+      "text": "Please hold on while I get my notes",
+      "answer": false,
+      "actual": false,
+      "reason": "not_a_request",
+      "correct": true,
+      "routerMs": 0.028099999999994907
+    },
+    {
+      "id": "n2",
+      "category": "conversation",
+      "text": "Can everyone see my screen?",
+      "answer": false,
+      "actual": false,
+      "reason": "social_or_housekeeping",
+      "correct": true,
+      "routerMs": 0.016099999999994452
+    },
+    {
+      "id": "n3",
+      "category": "conversation",
+      "text": "Could you speak a little louder?",
+      "answer": false,
+      "actual": false,
+      "reason": "social_or_housekeeping",
+      "correct": true,
+      "routerMs": 0.011399999999994748
+    },
+    {
+      "id": "n4",
+      "category": "conversation",
+      "text": "Find me after the meeting and we can talk",
+      "answer": false,
+      "actual": false,
+      "reason": "social_or_housekeeping",
+      "correct": true,
+      "routerMs": 0.010500000000007503
+    },
+    {
+      "id": "n5",
+      "category": "conversation",
+      "text": "This section explains why the model was too slow",
+      "answer": false,
+      "actual": false,
+      "reason": "not_a_request",
+      "correct": true,
+      "routerMs": 0.011899999999997135
+    },
+    {
+      "id": "n6",
+      "category": "conversation",
+      "text": "The benchmark passed on Tuesday and the release is ready",
+      "answer": false,
+      "actual": false,
+      "reason": "not_a_request",
+      "correct": true,
+      "routerMs": 0.01469999999999061
+    },
+    {
+      "id": "n7",
+      "category": "conversation",
+      "text": "I asked how the index works. The speaker explained it in detail.",
+      "answer": false,
+      "actual": false,
+      "reason": "not_a_request",
+      "correct": true,
+      "routerMs": 0.028199999999998226
+    },
+    {
+      "id": "n8",
+      "category": "conversation",
+      "text": "Have a good weekend!",
+      "answer": false,
+      "actual": false,
+      "reason": "social_or_housekeeping",
+      "correct": true,
+      "routerMs": 0.011400000000008959
+    },
+    {
+      "id": "h1",
+      "category": "hard",
+      "text": "Prove or disprove that every bounded sequence is convergent",
+      "answer": true,
+      "actual": true,
+      "reason": "direct_request",
+      "correct": true,
+      "routerMs": 0.013300000000000978
+    },
+    {
+      "id": "h2",
+      "category": "hard",
+      "text": "Compute the probability of exactly two collisions when throwing balls into bins",
+      "answer": true,
+      "actual": true,
+      "reason": "direct_request",
+      "correct": true,
+      "routerMs": 0.011400000000008959
+    },
+    {
+      "id": "h3",
+      "category": "hard",
+      "text": "Derive the gradient of binary cross entropy with respect to the logit",
+      "answer": true,
+      "actual": true,
+      "reason": "direct_request",
+      "correct": true,
+      "routerMs": 0.00929999999999609
+    },
+    {
+      "id": "mic",
+      "category": "conversation",
+      "text": "What is the data leakage risk?",
+      "source": "mic",
+      "answer": false,
+      "actual": false,
+      "reason": "mic_source",
+      "correct": true,
+      "routerMs": 0.014899999999997249
+    }
+  ]
+}

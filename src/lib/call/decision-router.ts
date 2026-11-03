@@ -1,7 +1,7 @@
 import type { FinalUtterance } from "./session-core";
 
 export type AutoResponseMode = "off" | "on_question" | "after_pause";
-export const ROUTER_VERSION = "deterministic-v7";
+export const ROUTER_VERSION = "deterministic-v8";
 export const MAX_LIVE_GUIDANCE_CHARS = 240;
 export type DecisionReason =
   | "mode_off" | "mic_source" | "short_or_noisy" | "social_or_housekeeping"
@@ -23,9 +23,10 @@ export interface AnsweredTurn {
 const QUESTION_START = /^(who|what|when|where|why|how|which|whose|is|are|was|were|do|does|did|can|could|would|should|will|have|has|may)\b/i;
 const CLEAR_QUESTION_AFTER_LEAD_IN = /^(?:(?:who|what|when|where|why|how|which|whose)\s+(?:is|are|was|were|do|does|did|can|could|would|should|will|have|has|may)|(?:is|are|was|were|do|does|did|can|could|would|should|will|have|has|may))\b/i;
 const DECLARATIVE_WH_OPENING = /^(?:who|what|when|where|why|how|which)\s+(?:i|we|you|he|she|they|it|the|a|an|my|our|your|this|that)\b/i;
-const DIRECT_REQUEST = /^(tell me(?: about)?|explain|describe|walk me through|compare|summarize|help me|solve|show me|give me|outline|find|prove|derive|calculate)\b/i;
+const DIRECT_REQUEST = /^(tell me(?: about)?|explain|describe|walk me through|compare|summarize|help me|solve|show me|give me|outline|find|prove|derive|calculate|compute)\b/i;
+const ROUTINE_CONVERSATION = /^(?:(?:can|could) (?:you|everyone) (?:see (?:my|the) (?:screen|slides)|speak (?:a little )?(?:louder|slower))|find me (?:after|at) (?:the |our )?(?:meeting|call)(?:\b.*)?|have a (?:good|great|nice) (?:day|weekend|evening))[?.!,\s]*$/i;
 const CALL_LOGISTICS = /^(?:(?:how are you|how's it going)(?: doing)?(?: today)?|(?:can|could|do) you (?:hear me|see (?:my|the) (?:screen|slides)|want me to share (?:my|the) screen)|(?:can|could|would) you (?:please )?repeat (?:that(?: last sentence)?|the last sentence|what you said)|give me (?:a|one) (?:second|minute|moment)(?: to .*)?)[?.!,\s]*$/i;
-const SHORT_FOLLOWUP = /^(?:why not|how so|(?:and|what about) [\p{L}\p{N}][\p{L}\p{N} -]{1,40})\??$/iu;
+const SHORT_FOLLOWUP = /^(?:(?:why not|how so)\??|(?:and|what about) [\p{L}\p{N}][\p{L}\p{N} -]{1,40}\?)$/iu;
 const SOCIAL_OR_HOUSEKEEPING = /^(?:hi|hello|hey|thanks?|thank you|okay|ok|right|yeah|yep|nope|um|uh|hmm|can you hear me|are you there|how are you|do you have any questions|any questions|what time is it|what's the time)[?.!,\s]*$/i;
 const INVITATION_TO_TRY = /^(?:(?:do )?you want|would you like|(?:are you )?ready for) (?:a|another) (?:hard|harder|easy|easier|trick) one[?.!,\s]*$/i;
 const DISCOURSE_LEAD_IN = /^(?:well|so|okay|ok|right|but|and|uh|um)\b[,;:]?\s+/i;
@@ -119,7 +120,8 @@ export function routeCallTurn(
   const sentences = requestText.split(/[.!?]\s+/);
   const lastSentence = sentences[sentences.length - 1]?.trim() ?? requestText;
   if (SOCIAL_OR_HOUSEKEEPING.test(requestText) || CALL_LOGISTICS.test(requestText) ||
-      CALL_LOGISTICS.test(lastSentence) || INVITATION_TO_TRY.test(lastSentence)) {
+      ROUTINE_CONVERSATION.test(requestText) || CALL_LOGISTICS.test(lastSentence) ||
+      ROUTINE_CONVERSATION.test(lastSentence) || INVITATION_TO_TRY.test(lastSentence)) {
     return silence("social_or_housekeeping");
   }
   if (lastAnswered && normalized === lastAnswered.normalizedText &&

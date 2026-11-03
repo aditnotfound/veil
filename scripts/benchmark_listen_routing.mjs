@@ -2,7 +2,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { routeCallTurn, ROUTER_VERSION } from "../src/lib/call/decision-router.ts";
 
-const corpus = JSON.parse(readFileSync(new URL("../tests/fixtures/listen-realistic-cases.json", import.meta.url), "utf8"));
+const input = process.argv[3] ?? new URL("../tests/fixtures/listen-realistic-cases.json", import.meta.url);
+const corpus = JSON.parse(readFileSync(input, "utf8"));
 const cases = corpus.cases.map((item, i) => {
   const turn = { id: item.id, sessionId: item.id, source: item.source ?? "system", sequence: 2,
     startedAt: 20000, endedAt: 22000, text: item.text };
