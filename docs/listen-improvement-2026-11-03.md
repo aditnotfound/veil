@@ -77,6 +77,18 @@ Code inspection confirms live captions are display-only: the automatic answer
 path still waits for batch STT, transcript/ledger persistence and the configured
 pace delay. The answer model is therefore not the only latency source.
 
+The VAD capture now flushes a partially filled live PCM frame immediately before
+emitting a completed segment, including forced 30-second segments. Previously,
+up to 200 ms of live audio could be emitted after the segment event that caused
+the client to commit the live stream. The remaining frame is emitted at most
+once. This improves the boundary but does not establish that live and batch
+segments contain identical audio: idle audio, discarded VAD segments, stream
+startup and failure still need explicit correlation. Live finals therefore remain
+display-only. [OpenAI's transcription guide](https://developers.openai.com/api/docs/guides/realtime-transcription)
+requires matching completion events to committed input items by `item_id`; their
+completion order across turns is not guaranteed. End-to-end event ordering and
+latency have not yet been measured on the packaged app.
+
 ## Remaining goal work
 
 - Evaluate separate realistic cases after freezing the development changes.

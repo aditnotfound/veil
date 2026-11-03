@@ -275,6 +275,9 @@ async fn run_vad_capture(
                 if speech_buffer.len() > max_samples {
                     let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
                     if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
+                        super::live_frame::flush_before_segment(&mut live_frame, |samples| {
+                            emit_pcm_frame(&app, sr, samples)
+                        });
                         // let duration = speech_buffer.len() as f32 / sr as f32;
                         emit_speech_segment(&app, b64, last_speech_at);
                     }
@@ -308,6 +311,9 @@ async fn run_vad_capture(
                             // Emit complete speech segment
                             let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
                             if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
+                                super::live_frame::flush_before_segment(&mut live_frame, |samples| {
+                                    emit_pcm_frame(&app, sr, samples)
+                                });
                                 // let duration = speech_buffer.len() as f32 / sr as f32;
                                 emit_speech_segment(&app, b64, last_speech_at);
                             } else {
