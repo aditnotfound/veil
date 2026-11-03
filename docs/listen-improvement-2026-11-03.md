@@ -282,3 +282,14 @@ test covers a late rejected transcript followed by a valid question. This is a
 boundary correction, not activation of live transcription as an answer source;
 batch STT remains authoritative. Packaged audio verification and reliable
 correlation of live final transcripts to saved turns still remain.
+
+The caption client now exposes `commitFinal()`, which returns the provider's
+completed transcript and receipt time for that commit. It associates provider
+item IDs with commit order, ignores duplicate acknowledgments, preserves
+timed-out slots so later turns cannot be shifted, and resolves pending requests
+to null on close or failure. Display resets do not erase pending final results.
+Queues are bounded and overflow falls back rather than guessing. Tests cover
+reversed completion order, early finalization, display reset, duplicate
+acknowledgments, timeout, discarded commits, and close. This API is not yet used
+to select answer transcripts: native/provider boundary alignment and live versus
+batch agreement still need measurement before changing the authoritative path.

@@ -5,6 +5,8 @@ type SocketFactory = (url: string, protocols: string[]) => SocketLike;
 type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
 type PendingEvent = { type: "audio"; audio: string; bytes: number } | { type: "commit" };
 type TranscriptPart = { text: string; completed: boolean };
+export type CommittedLiveFinal = { text: string; completedAt: number };
+type FinalResolver = (result: CommittedLiveFinal | null) => void;
 type LiveCaptionOptions = { delay?: "minimal" | "low" | "medium" | "high" | "xhigh" };
 
 const TARGET_RATE = 24_000;
@@ -72,7 +74,11 @@ export class OpenAILiveCaptions {
   private ready = false;
   private closed = false;
   // Final events can arrive out of order; commit acknowledgments fix display order.
-  private pendingCommits: { visible: boolean }[] = [];
+  private pendingCommits: { visible: boolean; resolve?: FinalResolver }[] = [];
+  private finalResolvers = new Map<string, FinalResolver>();
+  private waitingFinals = new Set<FinalResolver>();
+  private earlyFinals = new Map<string, CommittedLiveFinal>();
+  private acknowledgedIds = new Set<string>();
   private itemOrder: string[] = [];
   private items = new Map<string, TranscriptPart>();
   private earlyParts = new Map<string, TranscriptPart>();
@@ -160,13 +166,39 @@ export class OpenAILiveCaptions {
 
   commit(): void {
     if (this.closed) return;
+    if (this.pendingCommits.length >= 64) return this.fail();
     this.pendingCommits.push({ visible: true });
     this.queueOrSend({ type: "commit" });
+  }
+
+  /** Correlate a completed provider item with this exact commit, independently of display resets. */
+  commitFinal(timeoutMs = 15_000): Promise<CommittedLiveFinal | null> {
+    if (this.closed) return Promise.resolve(null);
+    // A missing acknowledgment must never shift later turns onto older promises.
+    if (this.pendingCommits.length >= 64 || this.waitingFinals.size >= 64) {
+      this.fail();
+      return Promise.resolve(null);
+    }
+    return new Promise((resolve) => {
+      const finish: FinalResolver = (result) => {
+        if (!this.waitingFinals.delete(finish)) return;
+        clearTimeout(timer);
+        for (const [id, resolver] of this.finalResolvers) {
+          if (resolver === finish) this.finalResolvers.delete(id);
+        }
+        resolve(result);
+      };
+      const timer = setTimeout(() => finish(null), timeoutMs);
+      this.waitingFinals.add(finish);
+      this.pendingCommits.push({ visible: true, resolve: finish });
+      this.queueOrSend({ type: "commit" });
+    });
   }
 
   /** Close a rejected VAD segment without displaying it as the next turn. */
   discard(): void {
     if (this.closed) return;
+    if (this.pendingCommits.length >= 64) return this.fail();
     for (const id of this.earlyParts.keys()) this.hiddenItemIds.add(id);
     this.earlyParts.clear();
     while (this.hiddenItemIds.size > 128) {
@@ -235,7 +267,16 @@ export class OpenAILiveCaptions {
       }
       if (event.type === "input_audio_buffer.committed" &&
         typeof event.item_id === "string") {
+        if (this.acknowledgedIds.has(event.item_id)) return;
+        this.acknowledgedIds.add(event.item_id);
+        while (this.acknowledgedIds.size > 128) this.acknowledgedIds.delete(this.acknowledgedIds.values().next().value!);
         const commit = this.pendingCommits.shift();
+        const early = this.earlyFinals.get(event.item_id);
+        this.earlyFinals.delete(event.item_id);
+        if (commit?.resolve && this.waitingFinals.has(commit.resolve)) {
+          if (early) commit.resolve(early);
+          else this.finalResolvers.set(event.item_id, commit.resolve);
+        }
         if (!commit?.visible || this.hiddenItemIds.has(event.item_id)) {
           this.hiddenItemIds.add(event.item_id);
           this.earlyParts.delete(event.item_id);
@@ -251,6 +292,16 @@ export class OpenAILiveCaptions {
       if ((event.type === "conversation.item.input_audio_transcription.delta" ||
         event.type === "conversation.item.input_audio_transcription.completed") &&
         typeof event.item_id === "string") {
+        if (event.type === "conversation.item.input_audio_transcription.completed" &&
+            typeof event.transcript === "string") {
+          const result = { text: event.transcript.trim(), completedAt: Date.now() };
+          const resolver = this.finalResolvers.get(event.item_id);
+          if (resolver) resolver(result);
+          else if (!this.hiddenItemIds.has(event.item_id) && !this.items.has(event.item_id)) {
+            this.earlyFinals.set(event.item_id, result);
+            while (this.earlyFinals.size > 16) this.earlyFinals.delete(this.earlyFinals.keys().next().value!);
+          }
+        }
         if (this.hiddenItemIds.has(event.item_id)) return;
         const part = this.items.get(event.item_id) ??
           this.earlyParts.get(event.item_id) ?? { text: "", completed: false };
@@ -296,6 +347,7 @@ export class OpenAILiveCaptions {
     if (this.closed) return;
     this.closed = true;
     this.ready = false;
+    this.clearFinals();
     this.pending = [];
     this.pendingBytes = 0;
     this.pendingCommits = [];
@@ -313,6 +365,7 @@ export class OpenAILiveCaptions {
     if (this.closed) return;
     this.closed = true;
     this.ready = false;
+    this.clearFinals();
     this.pending = [];
     this.pendingBytes = 0;
     this.pendingCommits = [];
@@ -323,5 +376,12 @@ export class OpenAILiveCaptions {
     clearTimeout(this.connectDeadline);
     this.abort.abort();
     this.socket?.close();
+  }
+
+  private clearFinals() {
+    for (const finish of this.waitingFinals) finish(null);
+    this.finalResolvers.clear();
+    this.earlyFinals.clear();
+    this.acknowledgedIds.clear();
   }
 }
