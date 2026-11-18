@@ -34,7 +34,7 @@ export const RESPONSE_LENGTHS: ResponseLengthOption[] = [
     description:
       "AI determines the best length based on your question's complexity",
     prompt:
-      "IMPORTANT: Carefully assess the complexity and scope of the question, then adjust your response length accordingly. For simple questions, be brief (2-4 sentences). For moderate questions, provide balanced detail (1-2 paragraphs). For complex questions, give comprehensive answers with appropriate depth. Always match the response length to what the question actually requires - no more, no less.",
+      "",
   },
 ];
 

@@ -30,7 +30,6 @@ import { QuickActions } from "./QuickActions";
 import { Warning } from "./Warning";
 import { ListenModeChips } from "./ListenModeChips";
 import { TranscriptPanel } from "./TranscriptPanel";
-import { RecallClues } from "./RecallClues";
 import { useSystemAudioType } from "@/hooks";
 import { useApp } from "@/contexts";
 import { cn } from "@/lib/utils";
@@ -120,8 +119,6 @@ export const SystemAudio = (props: useSystemAudioType) => {
     systemLiveStatus,
     partialSystemCaption,
     partialMicCaption,
-    recallClues,
-    memoryStatus,
     handleMicFrame,
     attachedScreenshot,
     setAttachedScreenshot,
@@ -455,7 +452,6 @@ export const SystemAudio = (props: useSystemAudioType) => {
                   liveAvailable={liveCaptionsAvailable} liveProvider={liveCaptionsProvider} liveEnabled={liveCaptionsEnabled}
                   systemStatus={systemLiveStatus} expanded={false} compact
                   onToggle={toggleTranscript} onShowAll={showAllTranscriptTurns} />
-                <RecallClues clues={recallClues} compact />
                 {(lastAIResponse || isAIProcessing) && (
                   <p className="text-[10px] line-clamp-2 px-1">
                     {isAIProcessing && !lastAIResponse ? "Answering…" : lastAIResponse}
@@ -545,11 +541,6 @@ export const SystemAudio = (props: useSystemAudioType) => {
                       systemStatus={systemLiveStatus} expanded={transcriptOpen}
                       compact={false}
                       onToggle={toggleTranscript} onShowAll={showAllTranscriptTurns} />
-
-                    <RecallClues clues={recallClues} />
-                    {memoryStatus && (
-                      <p role="status" className="text-[10px] text-muted-foreground px-1">{memoryStatus}</p>
-                    )}
 
                     {/* AI Response */}
                     <ResultsSection

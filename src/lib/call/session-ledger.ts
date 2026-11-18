@@ -98,7 +98,7 @@ export function formatSessionLedgerEvidence(entries: SessionLedgerEntry[]): stri
   if (!entries.length) return "";
   return [
     `## Candidate session ledger (${LEDGER_VERSION})`,
-    "These are exact transcript excerpts selected locally. They may be mistaken, stale, unresolved, or contradicted. Treat their labels as routing hints, not verified facts, and cite [C:id] when relying on one.",
+    "These are exact transcript excerpts selected locally. They may be mistaken, stale, unresolved, or contradicted. Treat their labels as routing hints, not verified facts.",
     ...entries.map((entry) =>
       `- [L:${entry.id}] [${entry.kind}] [C:${entry.sourceUtteranceId}] ${entry.source === "mic" ? "Mic" : "System"}: ${entry.excerpt}`
     ),

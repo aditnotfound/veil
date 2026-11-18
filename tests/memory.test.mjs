@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatCoreMemories, formatMemoryHits, isStrongClue, parseMemoryImport } from "../src/lib/memory/format.ts";
+import { formatCoreMemories, formatMemoryHits, parseMemoryImport } from "../src/lib/memory/format.ts";
 import { buildCallMemorySnapshot, callMemoryInputs, parseCallMemory } from "../src/lib/memory/consolidate.ts";
 import { chunkText } from "../src/lib/knowledge/chunk.ts";
 
@@ -23,15 +23,6 @@ test("core memories respect the shared budget and recalled memories are labeled"
     layer: "call", memoryKind: "qa", origin: "call:s1", tags: "[]", updatedAt: Date.UTC(2026, 10, 10), pinned: false,
     score: 1, similarity: 0.6, relevance: 3, lexical: false }]);
   assert.match(hits, /\[M:a\] \(from a call, saved 2026-11-10 · qa\)/);
-});
-
-test("clues need a clear semantic standout or keyword plus agreeing meaning", () => {
-  const hit = (relevance, lexical) => ({ relevance, lexical });
-  assert.equal(isStrongClue(hit(3, false), 2.6), true);
-  assert.equal(isStrongClue(hit(2, false), 2.6), false);
-  assert.equal(isStrongClue(hit(1.7, true), 2.6), true);
-  assert.equal(isStrongClue(hit(0.5, true), 2.6), false);
-  assert.equal(isStrongClue(hit(null, true), 2.6), false);
 });
 
 const utterance = (i, source, text) => ({ id: `u${i}`, sessionId: "s1", source, sequence: i, startedAt: 1000 + i, endedAt: 1001 + i, text });

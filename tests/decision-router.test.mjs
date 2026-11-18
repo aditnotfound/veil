@@ -24,7 +24,7 @@ test("proofs and multistep math use a careful profile while ordinary questions s
     assert.equal(plan.profile, "deep", text);
     assert.match(plan.prompt, /step by step/);
     assert.match(plan.prompt, /Show the steps/);
-    assert.doesNotMatch(plan.prompt, /at most 60 words/);
+    assert.doesNotMatch(plan.prompt, /under about 150 words/);
   }
   assert.equal(selectCallAnswerPlan("Why use a database index?", "Base").profile, "live-short");
   assert.equal(selectCallAnswerPlan("Explain overfitting", "Base", "Use an example").profile, "live-guided");
@@ -190,17 +190,17 @@ test("deep answer prompt labels the result as a draft and requires real checks",
   assert.match(prompt, /step by step/i);
   assert.match(prompt, /This response is a draft/i);
   assert.match(prompt, /never describe it as checked/i);
-  assert.match(prompt, /\[C:id\].*\[K:id\]/s);
+  assert.doesNotMatch(prompt, /\[C:id\]|\[K:id\]/);
 });
 
 test("call card prompt applies bounded live guidance while retaining grounding rules", () => {
   const plain = callCardPrompt("Base rules");
   const guided = callCardPrompt("Base rules", "  Focus on the database question.  ");
-  assert.match(plain, /at most 60 words/);
-  assert.match(plain, /one or two natural/);
+  assert.match(plain, /a sentence for a quick factual question/);
+  assert.match(plain, /under about 150 words/);
   assert.doesNotMatch(plain, /Focus on the database question/);
   assert.match(guided, /Focus on the database question/);
-  assert.doesNotMatch(guided, /at most 60 words|one or two natural/);
+  assert.doesNotMatch(guided, /under about 150 words/);
   assert.match(guided, /up to about 180 words/);
   assert.match(guided, /key steps and a check/);
   assert.match(guided, /explain the solution/);

@@ -48,14 +48,11 @@ import { previousSuggestionContext } from "@/lib/call/prompt-evidence";
 import { persistCallDerivedData } from "@/lib/call/persist-derived";
 import { callKnowledgeQuery } from "@/lib/call/knowledge-query";
 import { getKnowledgeSettings } from "@/lib/knowledge/retrieve";
-import { isStrongClue, memoryFromCallsEnabled, recall, saveMemories, warmRecall, type RecallHit } from "@/lib/memory";
+import { memoryFromCallsEnabled, saveMemories, warmRecall } from "@/lib/memory";
 import { buildCallMemorySnapshot, callMemoryInputs, CALL_MEMORY_PROMPT, parseCallMemory } from "@/lib/memory/consolidate";
 export type { AutoResponseMode } from "@/lib/call/decision-router";
 
 type LiveCaptionStream = DeepgramLiveCaptions | OpenAILiveCaptions;
-
-const CLUE_DEBOUNCE_MS = 300;
-const CLUE_MIN_RELEVANCE = 2.6;
 
 // VAD Configuration interface matching Rust
 export interface VadConfig {
@@ -418,6 +415,7 @@ export function useSystemAudio() {
           userMessage: snapshot.text,
           imagesBase64: [],
           signal: job.signal,
+          voice: false,
         })) {
           if (!job.isCurrent()) return;
           response += chunk;
@@ -457,14 +455,12 @@ export function useSystemAudio() {
   const launchSessionPlannerRef = useRef(launchSessionPlanner);
   useEffect(() => { launchSessionPlannerRef.current = launchSessionPlanner; }, [launchSessionPlanner]);
 
-  const [memoryStatus, setMemoryStatus] = useState("");
   /** Distills a finished call into memories in the background; never blocks Listen. */
   const rememberCall = useCallback((sessionId: string, utterances: FinalUtterance[]) => {
     if (!memoryFromCallsEnabled() || !getKnowledgeSettings().enabled) return;
     const snapshot = buildCallMemorySnapshot(utterances);
     if (!snapshot) return;
     const startedAt = Math.min(...utterances.map((utterance) => utterance.startedAt));
-    setMemoryStatus("Saving memories from the last call…");
     void (async () => {
       try {
         const usePluelyAPI = await shouldUsePluelyAPI();
@@ -482,17 +478,15 @@ export function useSystemAudio() {
           userMessage: snapshot,
           imagesBase64: [],
           signal: AbortSignal.timeout(120_000),
+          voice: false,
         })) {
           response += chunk;
           if (response.length > 30_000) throw new Error("Call memory response exceeded its limit");
         }
         const inputs = callMemoryInputs(parseCallMemory(response), sessionId, Number.isFinite(startedAt) ? startedAt : Date.now());
-        const saved = await saveMemories(inputs);
-        const merged = saved.filter((item) => item.merged).length;
-        setMemoryStatus(`Remembered ${saved.length - merged} new things from the last call${merged ? ` (${merged} refreshed)` : ""}`);
+        await saveMemories(inputs);
       } catch (memoryError) {
         console.warn("Could not save call memories:", memoryError);
-        setMemoryStatus("Memories from the last call could not be saved");
       }
     })();
   }, [allAiProviders, selectedAIProvider]);
@@ -619,32 +613,6 @@ export function useSystemAudio() {
     };
   }, [capturing, liveCaptionsEnabled, liveCaptionProvider, liveCaptionKey,
     deepgramLiveModel, micEnabled]);
-
-  // Clues are display-only hints from what the other side is saying. Answers
-  // always retrieve again from the finished question, so a wrong guess on a
-  // half-spoken sentence never reaches the model.
-  const [recallClues, setRecallClues] = useState<RecallHit[]>([]);
-  const clueSequenceRef = useRef(0);
-  useEffect(() => {
-    if (!capturing) {
-      clueSequenceRef.current += 1;
-      setRecallClues([]);
-      return;
-    }
-    const partial = partialSystemCaption.trim();
-    const text = partial || latestSystemTurn?.text.trim() || "";
-    if (text.split(/\s+/).length < 5 || !getKnowledgeSettings().enabled) return;
-    const sequence = ++clueSequenceRef.current;
-    const timer = setTimeout(() => {
-      recall(text.slice(-500), 4)
-        .then((hits) => {
-          if (sequence !== clueSequenceRef.current) return;
-          setRecallClues(hits.filter((hit) => isStrongClue(hit, CLUE_MIN_RELEVANCE)).slice(0, 3));
-        })
-        .catch(() => {});
-    }, partial ? CLUE_DEBOUNCE_MS : 0);
-    return () => clearTimeout(timer);
-  }, [capturing, partialSystemCaption, latestSystemTurn]);
 
   const handleMicFrame = useCallback((samples: Float32Array) => {
     micLiveRef.current?.sendPcm(pcm16FromFloat(samples));
@@ -2453,8 +2421,6 @@ export function useSystemAudio() {
     micLiveStatus,
     partialSystemCaption,
     partialMicCaption,
-    recallClues,
-    memoryStatus,
     handleMicFrame,
     attachedScreenshot,
     setAttachedScreenshot,

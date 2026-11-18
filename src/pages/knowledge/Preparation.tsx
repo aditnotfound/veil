@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { Button, Input, Label, Switch, Textarea } from "@/components";
 import { EMPTY_PREPARATION, PREPARATION_LIMITS, loadPreparation, savePreparation, type KnowledgePreparation, type PreparationField } from "@/lib/knowledge";
+import { VOICE_LIMITS, loadVoice, saveVoice, type AnswerVoice } from "@/lib/voice";
 
 export function Preparation({ enabled }: { enabled: boolean }) {
   const [draft, setDraft] = useState<KnowledgePreparation>({ ...EMPTY_PREPARATION });
+  const [voice, setVoice] = useState<AnswerVoice>(loadVoice);
   const [loaded, setLoaded] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -11,7 +13,12 @@ export function Preparation({ enabled }: { enabled: boolean }) {
   const [saved, setSaved] = useState("");
   useEffect(() => {
     let alive = true;
-    loadPreparation().then((value) => { if (alive) { setDraft(value); setLoaded(true); } })
+    loadPreparation().then((value) => {
+      if (!alive) return;
+      setDraft(value); setLoaded(true);
+      const current = loadVoice();
+      if (value.answerStyle && !current.style) setVoice(saveVoice({ ...current, style: value.answerStyle }));
+    })
       .catch(() => { if (alive) setError("Could not load your background. Reopen this page before editing it."); });
     return () => { alive = false; };
   }, []);
@@ -27,9 +34,19 @@ export function Preparation({ enabled }: { enabled: boolean }) {
       <p className="text-xs text-muted-foreground text-right">{draft[name].length}/{PREPARATION_LIMITS[name]}</p>
     </div>;
   };
+  const voiceField = (name: keyof AnswerVoice, label: string, placeholder: string, multiline: boolean) => {
+    const props = { id: `voice-${name}`, value: voice[name], placeholder, maxLength: VOICE_LIMITS[name], disabled: busy,
+      onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        setVoice((current) => ({ ...current, [name]: event.target.value })); setDirty(true); setSaved("");
+      } };
+    return <div className="space-y-1.5">
+      <Label htmlFor={props.id}>{label}</Label>
+      {multiline ? <Textarea {...props} className="min-h-40" /> : <Input {...props} />}
+    </div>;
+  };
   return <form className="space-y-5" onSubmit={async (event) => {
     event.preventDefault(); setBusy(true); setError("");
-    try { const value = await savePreparation(draft); setDraft(value); setDirty(false); setSaved("Saved. Ready for your next Listen session and new Ask answers."); }
+    try { setVoice(saveVoice(voice)); const value = await savePreparation({ ...draft, answerStyle: "" }); setDraft(value); setDirty(false); setSaved("Saved. Ready for your next Listen session and new Ask answers."); }
     catch { setError("Could not save your background. Your edits are still here; please try again."); }
     finally { setBusy(false); }
   }}>
@@ -39,7 +56,12 @@ export function Preparation({ enabled }: { enabled: boolean }) {
       <div className="flex justify-between items-center gap-3"><h2 className="font-medium">About you</h2><Switch aria-label="Include About you" checked={draft.useProfile} disabled={!loaded || busy} onCheckedChange={(value) => update("useProfile", value)} /></div>
       <p className="text-xs text-muted-foreground">Your role, experience, projects and preferences. Only add facts you want Veil to use.</p>
       {field("aboutYou", "Your background", "For example: I’m a software developer working on… My experience includes…", true)}
-      {field("answerStyle", "How answers should sound", "For example: conversational, explain the trade-off, use examples from my projects.")}
+    </section>
+    <section className="rounded-xl border p-4 space-y-3">
+      <h2 className="font-medium">Your voice</h2>
+      <p className="text-xs text-muted-foreground">Answers are written the way you talk. Veil picks the length itself and avoids list-style, assistant-sounding replies. This applies even when personal knowledge is off.</p>
+      {voiceField("style", "Describe your style", "For example: short and direct, casual, I explain with an example from my own work, no jargon.", false)}
+      {voiceField("samples", "Samples of how you actually talk", "Paste a few answers you've given, messages you've written or transcript lines of you speaking. Veil copies the voice, not the content.", true)}
     </section>
     <section className="rounded-xl border p-4 space-y-3">
       <div className="flex justify-between items-center gap-3"><h2 className="font-medium">Session brief</h2><Switch aria-label="Include session brief" checked={draft.useBrief} disabled={!loaded || busy} onCheckedChange={(value) => update("useBrief", value)} /></div>
