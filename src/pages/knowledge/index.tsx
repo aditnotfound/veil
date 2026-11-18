@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button, Input, Label, Switch, Tabs, TabsContent, TabsList, TabsTrigger, Textarea } from "@/components";
 import { PageLayout } from "@/layouts";
-import { useApp } from "@/contexts";
 import { deleteKnowledgeSource, extractTextFromFile, getKnowledgeSettings, ingestKnowledgeSource, listKnowledgeSources, setKnowledgeEnabled, setKnowledgeFocusTags, setKnowledgeSourceFlag, loadPreparation, formatPreparation, retrievePersonalContextLocal, type KnowledgeSource } from "@/lib/knowledge";
 import { Pin, Pencil, Trash2, Upload } from "lucide-react";
 import { Interview } from "./Interview";
+import { Memory } from "./Memory";
 import { Preparation } from "./Preparation";
+
+const MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024;
+const MAX_PDF_BYTES = 40 * 1024 * 1024;
 
 const parseTags = (value: string) => [...new Set(value.split(",").map((tag) => tag.trim()).filter(Boolean))];
 
 export default function Knowledge() {
-  const { selectedAIProvider } = useApp();
-  const apiKey = selectedAIProvider?.provider === "openai" ? (selectedAIProvider.variables?.api_key || selectedAIProvider.variables?.API_KEY || "").trim() : "";
   const [enabled, setEnabled] = useState(() => getKnowledgeSettings().enabled);
   const [focusTags, setFocusTags] = useState(() => getKnowledgeSettings().focusTags.join(", "));
   const [sources, setSources] = useState<KnowledgeSource[]>([]);
@@ -25,7 +26,6 @@ export default function Knowledge() {
   const [body, setBody] = useState("");
   const [editing, setEditing] = useState<KnowledgeSource | null>(null);
   const [confirmDelete, setConfirmDelete] = useState("");
-  const [semantic, setSemantic] = useState(false);
   const [question, setQuestion] = useState("");
   const [preview, setPreview] = useState("");
   const load = useCallback(async () => {
@@ -57,33 +57,35 @@ export default function Knowledge() {
       {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
       <Tabs defaultValue="prepare" className="gap-4" onValueChange={() => void load()}>
         <TabsList className="flex flex-wrap h-auto justify-start">
-          <TabsTrigger value="prepare">Prepare</TabsTrigger><TabsTrigger value="library">Library ({sources.length})</TabsTrigger><TabsTrigger value="preview">Check context</TabsTrigger><TabsTrigger value="interview">Profile interview</TabsTrigger>
+          <TabsTrigger value="prepare">Prepare</TabsTrigger><TabsTrigger value="memory">Memory</TabsTrigger><TabsTrigger value="library">Library ({sources.length})</TabsTrigger><TabsTrigger value="preview">Check context</TabsTrigger><TabsTrigger value="interview">Profile interview</TabsTrigger>
         </TabsList>
         <TabsContent value="prepare" forceMount className="data-[state=inactive]:hidden"><Preparation enabled={enabled} /></TabsContent>
+        <TabsContent value="memory"><Memory /></TabsContent>
         <TabsContent value="library" forceMount className="space-y-4 data-[state=inactive]:hidden">
-          <p className="text-sm text-muted-foreground">Add reference notes or files. Pin up to three short sources to include their opening excerpt even when a question uses different wording. Other included sources are searched when needed.</p>
+          <p className="text-sm text-muted-foreground">Add notes, papers, or files. Veil searches them on this device by keyword and by meaning, so a question can use different wording than your source. Pin up to three short sources to always include their opening excerpt.</p>
           <form className="rounded-xl border p-4 space-y-3" onSubmit={(event) => { event.preventDefault(); void run(async () => {
-            await ingestKnowledgeSource({ title: title.trim() || "Untitled note", kind: editing?.kind ?? "note", text: body, tags: parseTags(tags), existingId: editing?.id, apiKey: semantic ? apiKey : "" });
+            await ingestKnowledgeSource({ title: title.trim() || "Untitled note", kind: editing?.kind ?? "note", text: body, tags: parseTags(tags), existingId: editing?.id });
             resetEditor(); await load(); setNotice("Source saved and ready for local search.");
           }); }}>
             <h2 className="font-medium">{editing ? `Edit: ${editing.title}` : "Add a reference"}</h2>
             <Input aria-label="Reference title" placeholder="Title — project notes, resume, key facts…" value={title} onChange={(e) => setTitle(e.target.value)} disabled={busy} maxLength={200} />
             <Input aria-label="Reference tags" placeholder="Tags, separated by commas" value={tags} onChange={(e) => setTags(e.target.value)} disabled={busy} />
             <Textarea aria-label="Reference text" placeholder="Paste the information Veil should be able to refer to…" className="min-h-36" value={body} onChange={(e) => setBody(e.target.value)} disabled={busy} required />
-            {apiKey && <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={semantic} onChange={(e) => setSemantic(e.target.checked)} disabled={busy} />Also send this source to OpenAI to build semantic search for Ask</label>}
-            <p className="text-xs text-muted-foreground">Saving uses local search by default. Relevant excerpts are sent to your answer provider when answering. Updating a source rebuilds its search index.</p>
+            <p className="text-xs text-muted-foreground">Indexing happens on this device. Only the relevant excerpts are sent to your answer provider when answering. Updating a source rebuilds its index.</p>
             <div className="flex flex-wrap gap-2 items-center">
               <Button type="submit" disabled={busy || !body.trim()}>{busy ? "Working…" : editing ? "Save changes" : "Save reference"}</Button>
               {editing && <Button type="button" variant="outline" disabled={busy} onClick={resetEditor}>Cancel edit</Button>}
-              {!editing && <><Label htmlFor="knowledge-upload" className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer ${busy ? "opacity-50 pointer-events-none" : ""}`}><Upload className="size-4" />Import text file</Label>
-                <input id="knowledge-upload" type="file" className="hidden" accept=".txt,.md,.csv,.json" disabled={busy} onChange={(event) => {
+              {!editing && <><Label htmlFor="knowledge-upload" className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer ${busy ? "opacity-50 pointer-events-none" : ""}`}><Upload className="size-4" />Import file</Label>
+                <input id="knowledge-upload" type="file" className="hidden" accept=".pdf,.txt,.md,.csv,.json" disabled={busy} onChange={(event) => {
                   const file = event.target.files?.[0]; event.target.value = ""; if (!file) return;
                   void run(async () => {
-                    if (file.size > 2 * 1024 * 1024) throw new Error("Choose a text file smaller than 2 MB, or paste the relevant section.");
-                    await ingestKnowledgeSource({ title: file.name, kind: "file", text: await extractTextFromFile(file), tags: parseTags(tags), apiKey: semantic ? apiKey : "" });
-                    await load(); setNotice("File imported. You can edit, pin, or exclude it below.");
+                    const isPdf = file.name.toLowerCase().endsWith(".pdf");
+                    if (file.size > (isPdf ? MAX_PDF_BYTES : MAX_TEXT_FILE_BYTES)) throw new Error(isPdf ? "Choose a PDF smaller than 40 MB." : "Choose a text file smaller than 2 MB, or paste the relevant section.");
+                    setNotice(isPdf ? `Reading ${file.name}…` : "");
+                    await ingestKnowledgeSource({ title: file.name.replace(/\.(pdf|txt|md|csv|json)$/i, ""), kind: "file", text: await extractTextFromFile(file), tags: parseTags(tags) });
+                    await load(); setNotice("File imported and indexed. You can edit, pin, or exclude it below.");
                   });
-                }} /><span className="text-xs text-muted-foreground">TXT, Markdown, CSV, JSON. Paste text from PDFs.</span></>}
+                }} /><span className="text-xs text-muted-foreground">PDF (papers keep their sections), TXT, Markdown, CSV, JSON.</span></>}
             </div>
           </form>
           <div className="space-y-2"><Label htmlFor="focus-tags">Prefer these tags when searching</Label><Input id="focus-tags" value={focusTags} placeholder="work, project-x" onChange={(e) => setFocusTags(e.target.value)} onBlur={() => { const parsed = parseTags(focusTags); setKnowledgeFocusTags(parsed); setFocusTags(parsed.join(", ")); }} /></div>
@@ -102,7 +104,7 @@ export default function Knowledge() {
           </article>)}
         </TabsContent>
         <TabsContent value="preview" className="space-y-3">
-          <h2 className="font-medium">See what Veil would know</h2><p className="text-sm text-muted-foreground">Check your saved background, pinned excerpts and local search matches for a sample question. This does not send a request to an AI provider. Ask’s optional semantic search can return different references.</p>
+          <h2 className="font-medium">See what Veil would know</h2><p className="text-sm text-muted-foreground">See exactly what Veil would recall for a sample question: core memory, related memories, pinned excerpts, and library matches. Nothing is sent to an AI provider.</p>
           <Input aria-label="Sample question" placeholder="For example: Tell me about my latest project" value={question} onChange={(e) => { setQuestion(e.target.value); setPreview(""); }} />
           <Button disabled={busy} onClick={() => void run(async () => {
             const settings = getKnowledgeSettings();

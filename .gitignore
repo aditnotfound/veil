@@ -43,3 +43,6 @@ __pycache__/
 *.njsproj
 *.sln
 *.sw?
+
+# Downloaded by scripts/fetch-recall-model.mjs
+src-tauri/resources/recall-model/

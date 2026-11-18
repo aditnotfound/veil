@@ -242,6 +242,7 @@ impl SpeakerStream {
         match init_result {
             Ok((h_event, render_client, sample_rate)) => {
                 let _ = init_tx.send(Ok(sample_rate));
+                let mut read_failures = 0;
 
                 loop {
                     {
@@ -251,17 +252,26 @@ impl SpeakerStream {
                         }
                     }
 
+                    // Loopback produces no events during silence, so poll the
+                    // client between short waits to notice an unplugged or
+                    // switched device instead of waiting forever.
                     if !super::idle_wait::wait_for_audio(
-                        || h_event.wait_for_event(3000).is_ok(),
-                        || waker_state.lock().map(|state| state.shutdown).unwrap_or(true),
+                        || h_event.wait_for_event(200).is_ok(),
+                        || {
+                            waker_state.lock().map(|state| state.shutdown).unwrap_or(true)
+                                || render_client.get_next_packet_size().is_err()
+                        },
                         || thread::sleep(Duration::from_millis(50)),
                     ) { break; }
 
                     let mut temp_queue = VecDeque::new();
                     if let Err(e) = render_client.read_from_device_to_deque(&mut temp_queue) {
                         error!("Pluely Failed to read audio data: {}", e);
+                        read_failures += 1;
+                        if read_failures >= 3 { break; }
                         continue;
                     }
+                    read_failures = 0;
 
                     if temp_queue.is_empty() {
                         continue;
@@ -316,6 +326,15 @@ impl SpeakerStream {
                         }
                     }
                 }
+
+                // End the consumer's stream whenever capture stops, including device loss.
+                if let Ok(mut state) = waker_state.lock() {
+                    state.shutdown = true;
+                    if let Some(waker) = state.waker.take() {
+                        drop(state);
+                        waker.wake();
+                    }
+                }
             }
             Err(e) => {
                 let _ = init_tx.send(Err(e));
@@ -327,19 +346,14 @@ impl SpeakerStream {
     }
 }
 
-// Drops the audio stream
+// Drops the audio stream. The capture thread notices shutdown within one short
+// wait slice; it is detached so dropping never blocks an async worker.
 impl Drop for SpeakerStream {
     fn drop(&mut self) {
-        {
-            let mut state = self.waker_state.lock().unwrap();
+        if let Ok(mut state) = self.waker_state.lock() {
             state.shutdown = true;
         }
-
-        if let Some(thread) = self.capture_thread.take() {
-            if let Err(e) = thread.join() {
-                error!("Failed to join capture thread: {:?}", e);
-            }
-        }
+        self.capture_thread.take();
     }
 }
 

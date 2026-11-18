@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components";
 import {
   CheckCircle2Icon,
@@ -25,8 +25,15 @@ export const PermissionFlow = ({
   const [checkAttempts, setCheckAttempts] = useState(0);
   const [showManual, setShowManual] = useState(false);
 
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const grantTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     checkPermission();
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      if (grantTimeoutRef.current) clearTimeout(grantTimeoutRef.current);
+    };
   }, []);
 
   const checkPermission = async () => {
@@ -36,7 +43,7 @@ export const PermissionFlow = ({
 
       if (hasAccess) {
         setPermissionState("granted");
-        setTimeout(() => onPermissionGranted(), 500);
+        grantTimeoutRef.current = setTimeout(() => onPermissionGranted(), 500);
       } else {
         setPermissionState("denied");
         onPermissionDenied();
@@ -56,6 +63,7 @@ export const PermissionFlow = ({
       let attempts = 0;
       const maxAttempts = 20;
 
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
       const pollInterval = setInterval(async () => {
         attempts++;
         setCheckAttempts(attempts);
@@ -66,7 +74,7 @@ export const PermissionFlow = ({
           if (hasAccess) {
             clearInterval(pollInterval);
             setPermissionState("granted");
-            setTimeout(() => onPermissionGranted(), 500);
+            grantTimeoutRef.current = setTimeout(() => onPermissionGranted(), 500);
           } else if (attempts >= maxAttempts) {
             clearInterval(pollInterval);
             setPermissionState("denied");
@@ -76,6 +84,7 @@ export const PermissionFlow = ({
           console.error("Permission poll failed:", error);
         }
       }, 1000);
+      pollIntervalRef.current = pollInterval;
     } catch (error) {
       console.error("Permission request failed:", error);
       setPermissionState("denied");

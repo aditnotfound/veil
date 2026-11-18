@@ -19,6 +19,7 @@ export const STORAGE_KEYS = {
   AUTOSTART_INITIALIZED: "autostart_initialized",
 
   SELECTED_AUDIO_DEVICES: "selected_audio_devices",
+  OUTPUT_FOLLOWS_DEFAULT_MIGRATED: "output_follows_default_migrated",
   RESPONSE_SETTINGS: "response_settings",
   SUPPORTS_IMAGES: "supports_images",
   KNOWLEDGE_ENABLED: "knowledge_enabled",

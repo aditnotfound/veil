@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { Sidebar } from "@/components";
 import { Outlet } from "react-router-dom";
 import { ErrorBoundary } from "react-error-boundary";
@@ -25,7 +26,9 @@ export const DashboardLayout = () => {
         <Sidebar />
         {/* Main Content */}
         <main className="flex flex-1 flex-col overflow-hidden px-8">
-          <Outlet />
+          <Suspense fallback={null}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </ErrorBoundary>

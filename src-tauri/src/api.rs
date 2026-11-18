@@ -645,22 +645,23 @@ pub async fn chat_stream_response(
     // Handle streaming response
     let mut stream = response.bytes_stream();
     let mut full_response = String::new();
-    let mut buffer = String::new();
+    let mut buffer: Vec<u8> = Vec::new();
     let mut usage: Option<serde_json::Value> = None;
     let mut stream_started = false;
 
     while let Some(chunk) = stream.next().await {
         match chunk {
             Ok(bytes) => {
-                let chunk_str = String::from_utf8_lossy(&bytes);
-                buffer.push_str(&chunk_str);
+                buffer.extend_from_slice(&bytes);
 
-                // Process complete lines
-                let lines: Vec<&str> = buffer.split('\n').collect();
-                let incomplete_line = lines.last().unwrap_or(&"").to_string();
+                // Only decode complete lines so multi-byte characters split across chunks stay intact
+                let Some(last_newline) = buffer.iter().rposition(|&byte| byte == b'\n') else {
+                    continue;
+                };
+                let complete: Vec<u8> = buffer.drain(..=last_newline).collect();
+                let complete_str = String::from_utf8_lossy(&complete);
 
-                for line in &lines[..lines.len() - 1] {
-                    // Process all but the last (potentially incomplete) line
+                for line in complete_str.split('\n') {
                     let trimmed_line = line.trim();
 
                     if trimmed_line.starts_with("data: ") {
@@ -701,9 +702,6 @@ pub async fn chat_stream_response(
                         }
                     }
                 }
-
-                // Update buffer with incomplete line
-                buffer = incomplete_line;
             }
             Err(e) => {
                 let sources = vec![e.to_string()];

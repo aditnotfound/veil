@@ -1,8 +1,25 @@
-import { InfoIcon, MicIcon } from "lucide-react";
+import { ComponentProps, lazy, Suspense } from "react";
+import { InfoIcon, LoaderCircleIcon, MicIcon } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger, Button } from "@/components";
-import { AutoSpeechVAD } from "./AutoSpeechVad";
 import { UseCompletionReturn } from "@/types";
 import { useApp } from "@/contexts";
+
+// The VAD model is large; load it only when voice input is turned on.
+const LazyAutoSpeechVAD = lazy(() =>
+  import("./AutoSpeechVad").then((m) => ({ default: m.AutoSpeechVAD }))
+);
+
+const AutoSpeechVAD = (props: ComponentProps<typeof LazyAutoSpeechVAD>) => (
+  <Suspense
+    fallback={
+      <Button size="icon" disabled>
+        <LoaderCircleIcon className="h-4 w-4 animate-spin" />
+      </Button>
+    }
+  >
+    <LazyAutoSpeechVAD {...props} />
+  </Suspense>
+);
 
 export const Audio = ({
   micOpen,

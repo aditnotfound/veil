@@ -1,38 +1,37 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import Overlay from "./components/Overlay";
-import { AppProvider, ThemeProvider } from "./contexts";
 import "./global.css";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import AppRoutes from "./routes";
-import Prompter from "./pages/prompter";
 
 const currentWindow = getCurrentWindow();
 const windowLabel = currentWindow.label;
 
-// Render different components based on window label
-if (windowLabel === "prompter") {
+const render = (node: React.ReactNode) =>
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-    <React.StrictMode>
-      <ThemeProvider><Prompter /></ThemeProvider>
-    </React.StrictMode>
+    <React.StrictMode>{node}</React.StrictMode>
+  );
+
+// Each window loads only the code it renders.
+if (windowLabel === "prompter") {
+  Promise.all([import("./contexts"), import("./pages/prompter")]).then(
+    ([{ ThemeProvider }, { default: Prompter }]) =>
+      render(<ThemeProvider><Prompter /></ThemeProvider>)
   );
 } else if (windowLabel.startsWith("capture-overlay-")) {
   const monitorIndex = parseInt(windowLabel.split("-")[2], 10) || 0;
   // Render overlay without providers
-  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-    <React.StrictMode>
-      <Overlay monitorIndex={monitorIndex} />
-    </React.StrictMode>
+  import("./components/Overlay").then(({ default: Overlay }) =>
+    render(<Overlay monitorIndex={monitorIndex} />)
   );
 } else {
-  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-    <React.StrictMode>
-      <ThemeProvider>
-        <AppProvider>
-          <AppRoutes />
-        </AppProvider>
-      </ThemeProvider>
-    </React.StrictMode>
+  Promise.all([import("./contexts"), import("./routes")]).then(
+    ([{ AppProvider, ThemeProvider }, { default: AppRoutes }]) =>
+      render(
+        <ThemeProvider>
+          <AppProvider>
+            <AppRoutes />
+          </AppProvider>
+        </ThemeProvider>
+      )
   );
 }

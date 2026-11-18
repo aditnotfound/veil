@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { ChevronLeft, ChevronRight, Mic, MicOff, Minus, Pencil, Plus, RotateCcw, ScrollText } from "lucide-react";
@@ -7,7 +7,10 @@ import { OpenAILiveCaptions } from "@/lib/call/openai-live-captions";
 import { DeepgramLiveCaptions, pcm16FromFloat, type CaptionStatus } from "@/lib/call/deepgram-live-captions";
 import { advanceScriptCursor, fitScriptLines, scriptWords } from "@/lib/prompter/follow-script";
 import { loadProviderSelection, type ProviderKind, type SelectedProvider } from "@/lib/storage/provider-secrets";
-import { CallMicCapture } from "@/pages/app/components/speech/CallMicCapture";
+
+const CallMicCapture = lazy(() =>
+  import("@/pages/app/components/speech/CallMicCapture").then((m) => ({ default: m.CallMicCapture }))
+);
 
 const SCRIPT_KEY = "veil_prompter_script_v1";
 const SIZE_KEY = "veil_prompter_font_size_v1";
@@ -360,11 +363,13 @@ export default function Prompter() {
         </div>
       </>}
       {error && <p role="alert" className="shrink-0 text-xs text-destructive">{error}</p>}
-      {listening && config && <CallMicCapture key={streamVersion} deviceId={selectedMicId()} onSpeechEnd={onSpeechEnd}
-        onSpeechStart={onSpeechStart} onFrame={onFrame} onError={(message) => {
-          setError(`Microphone unavailable: ${message}`);
-          setListening(false);
-        }} />}
+      {listening && config && <Suspense fallback={null}>
+        <CallMicCapture key={streamVersion} deviceId={selectedMicId()} onSpeechEnd={onSpeechEnd}
+          onSpeechStart={onSpeechStart} onFrame={onFrame} onError={(message) => {
+            setError(`Microphone unavailable: ${message}`);
+            setListening(false);
+          }} />
+      </Suspense>}
     </main>
   );
 }

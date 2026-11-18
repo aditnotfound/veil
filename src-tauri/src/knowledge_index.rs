@@ -115,7 +115,12 @@ pub async fn commit_knowledge_index(
         .app_config_dir()
         .map_err(|error| error.to_string())?;
     let mut connection = open_database(config_dir.join("veil.db")).await?;
-    commit_on_connection(&mut connection, input).await
+    let source_id = input.source_id.clone();
+    commit_on_connection(&mut connection, input).await?;
+    if let Err(error) = crate::recall::reindex_source(&app, &source_id).await {
+        eprintln!("Recall vectors for {source_id} will be rebuilt on next warm-up: {error}");
+    }
+    Ok(())
 }
 
 async fn delete_on_connection(
@@ -149,7 +154,11 @@ pub async fn delete_knowledge_index(app: AppHandle, source_id: String) -> Result
         .app_config_dir()
         .map_err(|error| error.to_string())?;
     let mut connection = open_database(config_dir.join("veil.db")).await?;
-    delete_on_connection(&mut connection, &source_id).await
+    delete_on_connection(&mut connection, &source_id).await?;
+    if let Err(error) = crate::recall::forget_source(&app, &source_id).await {
+        eprintln!("Stale recall vectors for {source_id} will be dropped on next warm-up: {error}");
+    }
+    Ok(())
 }
 
 #[cfg(test)]

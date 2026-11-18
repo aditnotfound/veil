@@ -514,7 +514,6 @@ export async function* fetchAIResponse(params: {
         }`);
       }
       const { done, value } = readResult;
-      if (done) break;
 
       // Check if aborted before processing
       if (signal?.aborted) {
@@ -522,7 +521,7 @@ export async function* fetchAIResponse(params: {
         return;
       }
 
-      buffer += decoder.decode(value, { stream: true });
+      buffer += done ? decoder.decode() + "\n" : decoder.decode(value, { stream: true });
 
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
@@ -544,6 +543,7 @@ export async function* fetchAIResponse(params: {
           }
         }
       }
+      if (done) break;
     }
   } catch (error) {
     throw new Error(

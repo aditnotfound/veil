@@ -4,8 +4,10 @@ mod api;
 mod capture;
 mod chatgpt_plan;
 mod db;
+mod embedder;
 mod provider_secrets;
 mod knowledge_index;
+mod recall;
 mod shortcuts;
 mod window;
 use std::sync::{Arc, Mutex};
@@ -26,6 +28,8 @@ pub struct AudioState {
     stream_task: Arc<Mutex<Option<JoinHandle<()>>>>,
     vad_config: Arc<Mutex<VadConfig>>,
     is_capturing: Arc<Mutex<bool>>,
+    capture_starting: AtomicBool,
+    capture_generation: AtomicU64,
     pub(crate) segment_sequence: AtomicU64,
     pub(crate) live_caption_frames: Arc<AtomicBool>,
 }
@@ -40,6 +44,25 @@ pub fn run() {
     // Get PostHog API key
     let posthog_api_key = option_env!("POSTHOG_API_KEY").unwrap_or("").to_string();
     let mut builder = tauri::Builder::default()
+        // Must be registered before the SQL plugin, which validates migration
+        // checksums during its own setup.
+        .plugin(
+            tauri::plugin::Builder::<tauri::Wry>::new("veil-db-repair")
+                .setup(|app, _api| {
+                    if let Ok(dir) = app.path().app_config_dir() {
+                        let db_path = dir.join("veil.db");
+                        match tauri::async_runtime::block_on(
+                            db::repair::repair_line_ending_checksums(&db_path),
+                        ) {
+                            Ok(0) => {}
+                            Ok(count) => eprintln!("Re-recorded {} migration checksums", count),
+                            Err(e) => eprintln!("Migration checksum repair skipped: {}", e),
+                        }
+                    }
+                    Ok(())
+                })
+                .build(),
+        )
         .plugin(
             tauri_plugin_sql::Builder::default()
                 .add_migrations("sqlite:veil.db", db::migrations())
@@ -124,6 +147,11 @@ pub fn run() {
             get_app_version,
             knowledge_index::commit_knowledge_index,
             knowledge_index::delete_knowledge_index,
+            recall::recall_warmup,
+            recall::recall_status,
+            recall::recall_search,
+            recall::memory_save,
+            recall::memory_delete,
             provider_secrets::save_provider_secret,
             provider_secrets::get_provider_secret,
             provider_secrets::remove_provider_secret,
@@ -185,6 +213,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             init(app.app_handle());
             let app_handle = app.handle();
+            recall::start_model_load(app_handle);
             if app_handle.get_webview_window("dashboard").is_none() {
                 if let Err(e) = window::create_dashboard_window(&app_handle) {
                     eprintln!("Failed to pre-create dashboard window on startup: {}", e);

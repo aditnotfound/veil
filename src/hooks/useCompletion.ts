@@ -360,6 +360,7 @@ export const useCompletion = () => {
   // are now imported from lib/database/chat-history.action.ts
 
   const loadConversation = useCallback((conversation: ChatConversation) => {
+    cancel();
     setState((prev) => ({
       ...prev,
       currentConversationId: conversation.id,
@@ -369,9 +370,10 @@ export const useCompletion = () => {
       error: null,
       isLoading: false,
     }));
-  }, []);
+  }, [cancel]);
 
   const startNewConversation = useCallback(() => {
+    cancel();
     setState((prev) => ({
       ...prev,
       currentConversationId: null,
@@ -382,7 +384,7 @@ export const useCompletion = () => {
       isLoading: false,
       attachedFiles: [],
     }));
-  }, []);
+  }, [cancel]);
 
   const saveCurrentConversation = useCallback(
     async (
@@ -942,50 +944,42 @@ export const useCompletion = () => {
   }, [handleScreenshotSubmit]);
 
   useEffect(() => {
-    let unlisten: any;
+    const unlisten = listen("captured-selection", async (event: any) => {
+      if (!screenshotInitiatedByThisContext.current) {
+        return;
+      }
 
-    const setupListener = async () => {
-      unlisten = await listen("captured-selection", async (event: any) => {
-        if (!screenshotInitiatedByThisContext.current) {
-          return;
+      if (isProcessingScreenshotRef.current) {
+        return;
+      }
+
+      isProcessingScreenshotRef.current = true;
+      const base64 = event.payload;
+      const config = screenshotConfigRef.current;
+
+      try {
+        if (config.mode === "auto") {
+          // Auto mode: Submit directly to AI with the configured prompt
+          await handleScreenshotSubmitRef.current?.(base64 as string, config.autoPrompt);
+        } else if (config.mode === "manual") {
+          // Manual mode: Add to attached files without prompt
+          await handleScreenshotSubmitRef.current?.(base64 as string);
         }
-
-        if (isProcessingScreenshotRef.current) {
-          return;
-        }
-
-        isProcessingScreenshotRef.current = true;
-        const base64 = event.payload;
-        const config = screenshotConfigRef.current;
-
-        try {
-          if (config.mode === "auto") {
-            // Auto mode: Submit directly to AI with the configured prompt
-            await handleScreenshotSubmit(base64 as string, config.autoPrompt);
-          } else if (config.mode === "manual") {
-            // Manual mode: Add to attached files without prompt
-            await handleScreenshotSubmit(base64 as string);
-          }
-        } catch (error) {
-          console.error("Error processing selection:", error);
-        } finally {
-          setIsScreenshotLoading(false);
-          screenshotInitiatedByThisContext.current = false;
-          setTimeout(() => {
-            isProcessingScreenshotRef.current = false;
-          }, 100);
-        }
-      });
-    };
-
-    setupListener();
+      } catch (error) {
+        console.error("Error processing selection:", error);
+      } finally {
+        setIsScreenshotLoading(false);
+        screenshotInitiatedByThisContext.current = false;
+        setTimeout(() => {
+          isProcessingScreenshotRef.current = false;
+        }, 100);
+      }
+    });
 
     return () => {
-      if (unlisten) {
-        unlisten();
-      }
+      unlisten.then((fn) => fn());
     };
-  }, [handleScreenshotSubmit]);
+  }, []);
 
   useEffect(() => {
     const unlisten = listen("capture-closed", () => {

@@ -131,7 +131,7 @@ export const useChatCompletion = (
   }, []);
 
   const submit = useCallback(
-    async (speechText?: string) => {
+    async (speechText?: string, extraFiles: AttachedFile[] = []) => {
       const input = speechText || state.input;
 
       if (!input.trim()) {
@@ -166,13 +166,11 @@ export const useChatCompletion = (
 
         // Handle image attachments
         const imagesBase64: string[] = [];
-        if (state.attachedFiles.length > 0) {
-          state.attachedFiles.forEach((file) => {
-            if (file.type.startsWith("image/")) {
-              imagesBase64.push(file.base64);
-            }
-          });
-        }
+        [...state.attachedFiles, ...extraFiles].forEach((file) => {
+          if (file.type.startsWith("image/")) {
+            imagesBase64.push(file.base64);
+          }
+        });
 
         const usePluelyAPI = await shouldUsePluelyAPI();
         // Check if AI provider is configured
@@ -445,15 +443,8 @@ export const useChatCompletion = (
             size: base64.length,
           };
 
-          // Store files temporarily and submit
-          setState((prev) => ({
-            ...prev,
-            attachedFiles: [...prev.attachedFiles, attachedFile],
-            input: prompt,
-          }));
-
-          // Submit with the prompt and screenshot
-          setTimeout(() => submit(prompt), 100);
+          // Pass the screenshot directly; state updates are not visible to this render's submit.
+          void submit(prompt, [attachedFile]);
         } else {
           // Manual mode: Add to attached files
           const attachedFile: AttachedFile = {
@@ -618,52 +609,49 @@ export const useChatCompletion = (
     }
   }, [handleScreenshotSubmit, hasActiveLicense]);
 
+  const handleScreenshotSubmitRef = useRef(handleScreenshotSubmit);
   useEffect(() => {
-    let unlisten: any;
+    handleScreenshotSubmitRef.current = handleScreenshotSubmit;
+  }, [handleScreenshotSubmit]);
 
-    const setupListener = async () => {
-      unlisten = await listen("captured-selection", async (event: any) => {
-        // Only process if this context initiated the screenshot
-        if (!screenshotInitiatedByThisContext.current) {
-          return;
+  useEffect(() => {
+    const unlisten = listen("captured-selection", async (event: any) => {
+      // Only process if this context initiated the screenshot
+      if (!screenshotInitiatedByThisContext.current) {
+        return;
+      }
+
+      if (isProcessingScreenshotRef.current) {
+        return;
+      }
+
+      isProcessingScreenshotRef.current = true;
+      const base64 = event.payload;
+      const config = screenshotConfigRef.current;
+
+      try {
+        if (config.mode === "auto") {
+          // Auto mode: Submit directly to AI with the configured prompt
+          await handleScreenshotSubmitRef.current(base64 as string, config.autoPrompt);
+        } else if (config.mode === "manual") {
+          // Manual mode: Add to attached files without prompt
+          await handleScreenshotSubmitRef.current(base64 as string);
         }
-
-        if (isProcessingScreenshotRef.current) {
-          return;
-        }
-
-        isProcessingScreenshotRef.current = true;
-        const base64 = event.payload;
-        const config = screenshotConfigRef.current;
-
-        try {
-          if (config.mode === "auto") {
-            // Auto mode: Submit directly to AI with the configured prompt
-            await handleScreenshotSubmit(base64 as string, config.autoPrompt);
-          } else if (config.mode === "manual") {
-            // Manual mode: Add to attached files without prompt
-            await handleScreenshotSubmit(base64 as string);
-          }
-        } catch (error) {
-          console.error("Error processing selection:", error);
-        } finally {
-          setIsScreenshotLoading(false);
-          screenshotInitiatedByThisContext.current = false;
-          setTimeout(() => {
-            isProcessingScreenshotRef.current = false;
-          }, 100);
-        }
-      });
-    };
-
-    setupListener();
+      } catch (error) {
+        console.error("Error processing selection:", error);
+      } finally {
+        setIsScreenshotLoading(false);
+        screenshotInitiatedByThisContext.current = false;
+        setTimeout(() => {
+          isProcessingScreenshotRef.current = false;
+        }, 100);
+      }
+    });
 
     return () => {
-      if (unlisten) {
-        unlisten();
-      }
+      unlisten.then((fn) => fn());
     };
-  }, [handleScreenshotSubmit]);
+  }, []);
 
   useEffect(() => {
     const unlisten = listen("capture-closed", () => {

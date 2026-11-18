@@ -165,6 +165,8 @@ const Meetings = () => {
   };
 
   const openMeeting = (id: string) => {
+    abortRef.current?.abort();
+    setIsSummarizing(false);
     setIsCreating(false);
     setSelectedId(id);
     setFormSuggestions("");
@@ -389,6 +391,7 @@ const Meetings = () => {
       setError(null);
       abortRef.current?.abort();
       abortRef.current = new AbortController();
+      const { signal } = abortRef.current;
       const usePluelyAPI = await shouldUsePluelyAPI();
       const provider = allAiProviders.find((item) => item.id === selectedAIProvider.provider);
       if (!usePluelyAPI && !provider) throw new Error("Select an AI provider before regenerating this card.");
@@ -417,12 +420,13 @@ const Meetings = () => {
         responseProfile: suggestion.tier === "deep" ? "deep" : "default",
         userMessage: turn.text,
         imagesBase64: [],
-        signal: abortRef.current.signal,
+        signal,
       })) {
         if (chunk) streamEvents.push({ at: Date.now(), delta: chunk });
         answer += chunk;
         setRegenerationPreview(answer);
       }
+      if (signal.aborted) return;
       if (!answer.trim()) throw new Error("The provider returned no replacement answer.");
       const replacement = {
         turnId: suggestion.turnId,
@@ -499,6 +503,7 @@ const Meetings = () => {
 
       abortRef.current?.abort();
       abortRef.current = new AbortController();
+      const { signal } = abortRef.current;
 
       let full = "";
       for await (const chunk of fetchAIResponse({
@@ -509,11 +514,13 @@ const Meetings = () => {
           "You summarize meeting transcripts clearly and concisely.",
         preparedContext: sourceCallSessionId ? startingContext : "",
         userMessage: `Summarize this meeting transcript. Include key topics, decisions, and action items.\n\n---\n${formTranscript}`,
-        signal: abortRef.current.signal,
+        signal,
       })) {
+        if (signal.aborted) return;
         full += chunk;
         setFormSummary(full);
       }
+      if (signal.aborted) return;
 
       if (selectedId) {
         const updated = await updateMeeting(selectedId, { summary: full });

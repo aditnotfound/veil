@@ -43,7 +43,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": ["info.plist", "pluely.desktop"],
+    "resources": ["info.plist", "pluely.desktop", "resources/recall-model/*"],
     "macOS": { "minimumSystemVersion": "10.13" },
     "windows": {
       "nsis": {

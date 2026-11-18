@@ -12,6 +12,7 @@ let globalEventListeners: {
   customShortcut?: UnlistenFn;
   registrationError?: UnlistenFn;
 } = {};
+let listenersSetup: Promise<void> | null = null;
 
 // Global debounce for screenshot events to prevent duplicates
 let lastScreenshotEventTime = 0;
@@ -110,55 +111,10 @@ export const useGlobalShortcuts = () => {
 
   // Setup event listeners using global singleton
   useEffect(() => {
-    const setupEventListeners = async () => {
+    // Several hooks mount this in the same commit; registering per mount
+    // would make every shortcut fire once per hook instance.
+    listenersSetup ??= (async () => {
       try {
-        // Clean up any existing global listeners first
-        if (globalEventListeners.focus) {
-          try {
-            globalEventListeners.focus();
-          } catch (error) {
-            console.warn("Error cleaning up focus listener:", error);
-          }
-        }
-        if (globalEventListeners.audio) {
-          try {
-            globalEventListeners.audio();
-          } catch (error) {
-            console.warn("Error cleaning up audio listener:", error);
-          }
-        }
-        if (globalEventListeners.screenshot) {
-          try {
-            globalEventListeners.screenshot();
-          } catch (error) {
-            console.warn("Error cleaning up screenshot listener:", error);
-          }
-        }
-        if (globalEventListeners.systemAudio) {
-          try {
-            globalEventListeners.systemAudio();
-          } catch (error) {
-            console.warn("Error cleaning up system audio listener:", error);
-          }
-        }
-        if (globalEventListeners.customShortcut) {
-          try {
-            globalEventListeners.customShortcut();
-          } catch (error) {
-            console.warn("Error cleaning up custom shortcut listener:", error);
-          }
-        }
-        if (globalEventListeners.registrationError) {
-          try {
-            globalEventListeners.registrationError();
-          } catch (error) {
-            console.warn(
-              "Error cleaning up shortcut registration error listener:",
-              error
-            );
-          }
-        }
-
         // Listen for focus text input event
         const unlistenFocus = await listen("focus-text-input", () => {
           setTimeout(() => {
@@ -249,10 +205,9 @@ export const useGlobalShortcuts = () => {
         globalEventListeners.registrationError = unlistenRegistrationError;
       } catch (error) {
         console.error("Failed to setup event listeners:", error);
+        listenersSetup = null;
       }
-    };
-
-    setupEventListeners();
+    })();
   }, []);
 
   return {

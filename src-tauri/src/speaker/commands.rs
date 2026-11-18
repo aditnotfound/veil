@@ -1,5 +1,5 @@
 // Pluely AI Speech Detection, and capture system audio (speaker output) as a stream of f32 samples.
-use crate::speaker::{AudioDevice, SpeakerInput};
+use crate::speaker::{AudioDevice, SpeakerInput, SpeakerStream};
 use anyhow::Result;
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use futures_util::StreamExt;
@@ -107,7 +107,16 @@ pub async fn start_system_audio_capture(
 ) -> Result<(), String> {
     let state = app.state::<crate::AudioState>();
 
-    // Check if already capturing (atomic check)
+    if state
+        .capture_starting
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        warn!("Capture already starting");
+        return Err("Capture already starting".to_string());
+    }
+    let _starting = StartingGuard(&state.capture_starting);
+
     {
         let guard = state
             .stream_task
@@ -119,6 +128,7 @@ pub async fn start_system_audio_capture(
             return Err("Capture already running".to_string());
         }
     }
+    let generation = state.capture_generation.load(Ordering::Acquire);
 
     // Update VAD config if provided
     if let Some(config) = vad_config {
@@ -130,24 +140,9 @@ pub async fn start_system_audio_capture(
         *vad_cfg = config;
     }
 
-    let input = SpeakerInput::new_with_device(device_id).map_err(|e| {
-        error!("Failed to create speaker input: {}", e);
-        format!("Failed to access system audio: {}", e)
-    })?;
-
-    let stream = input.stream().map_err(|e| format!("Failed to start system audio: {}", e))?;
+    let stream = open_speaker_stream(device_id.clone()).await?;
     let sr = stream.sample_rate();
 
-    // Validate sample rate
-    if !(8000..=96000).contains(&sr) {
-        error!("Invalid sample rate: {}", sr);
-        return Err(format!(
-            "Invalid sample rate: {}. Expected 8000-96000 Hz",
-            sr
-        ));
-    }
-
-    let app_clone = app.clone();
     state
         .live_caption_frames
         .store(live_captions.unwrap_or(false), Ordering::Relaxed);
@@ -158,51 +153,142 @@ pub async fn start_system_audio_capture(
         .map_err(|e| format!("Failed to read VAD config: {}", e))?
         .clone();
 
-    // Mark as capturing BEFORE spawning task
+    let mut task_slot = state
+        .stream_task
+        .lock()
+        .map_err(|e| format!("Failed to store task: {}", e))?;
+    if task_slot.is_some() || state.capture_generation.load(Ordering::Acquire) != generation {
+        return Err("Capture was stopped while starting".to_string());
+    }
+
     *state
         .is_capturing
         .lock()
         .map_err(|e| format!("Failed to set capturing state: {}", e))? = true;
 
-    // Emit capture started event
-    let _ = app_clone.emit("capture-started", sr);
+    let _ = app.emit("capture-started", sr);
 
-    let state_clone = app.state::<crate::AudioState>();
-    let task = tokio::spawn(async move {
-        if vad_config.enabled {
-            run_vad_capture(
-                app_clone.clone(),
-                stream,
-                sr,
-                vad_config,
-                live_caption_frames,
-            )
-            .await;
-        } else {
-            run_continuous_capture(
-                app_clone.clone(),
-                stream,
-                sr,
-                vad_config,
-                live_caption_frames,
-            )
-            .await;
-        }
-
-        let state = app_clone.state::<crate::AudioState>();
-        {
-            if let Ok(mut guard) = state.stream_task.lock() {
-                *guard = None;
-            };
-        }
-    });
-
-    *state_clone
-        .stream_task
-        .lock()
-        .map_err(|e| format!("Failed to store task: {}", e))? = Some(task);
+    *task_slot = Some(tokio::spawn(run_capture_task(
+        app.clone(),
+        stream,
+        sr,
+        vad_config,
+        live_caption_frames,
+        device_id,
+        generation,
+    )));
 
     Ok(())
+}
+
+struct StartingGuard<'a>(&'a AtomicBool);
+
+impl Drop for StartingGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
+/// Opening a device can block for seconds, so keep it off the async workers.
+async fn open_speaker_stream(device_id: Option<String>) -> Result<SpeakerStream, String> {
+    let stream = tauri::async_runtime::spawn_blocking(move || {
+        let input = SpeakerInput::new_with_device(device_id).map_err(|e| {
+            error!("Failed to create speaker input: {}", e);
+            format!("Failed to access system audio: {}", e)
+        })?;
+        input
+            .stream()
+            .map_err(|e| format!("Failed to start system audio: {}", e))
+    })
+    .await
+    .map_err(|e| format!("Failed to start system audio: {}", e))??;
+
+    let sr = stream.sample_rate();
+    if !(8000..=96000).contains(&sr) {
+        error!("Invalid sample rate: {}", sr);
+        return Err(format!(
+            "Invalid sample rate: {}. Expected 8000-96000 Hz",
+            sr
+        ));
+    }
+    Ok(stream)
+}
+
+fn is_current_generation(app: &AppHandle, generation: u64) -> bool {
+    app.state::<crate::AudioState>()
+        .capture_generation
+        .load(Ordering::Acquire)
+        == generation
+}
+
+async fn run_capture_task(
+    app: AppHandle,
+    mut stream: SpeakerStream,
+    mut sr: u32,
+    vad_config: VadConfig,
+    live_caption_frames: Arc<AtomicBool>,
+    device_id: Option<String>,
+    generation: u64,
+) {
+    if !vad_config.enabled {
+        run_continuous_capture(app.clone(), stream, sr, vad_config, live_caption_frames).await;
+        if is_current_generation(&app, generation) {
+            if let Ok(mut guard) = app.state::<crate::AudioState>().stream_task.lock() {
+                *guard = None;
+            }
+        }
+        return;
+    }
+
+    loop {
+        run_vad_capture(app.clone(), stream, sr, vad_config.clone(), live_caption_frames.clone())
+            .await;
+
+        // VAD capture only returns when the device stream ends (unplugged or
+        // default output switched). Follow the device instead of going silent.
+        let mut reopened = None;
+        for attempt in 0..5u64 {
+            if !is_current_generation(&app, generation) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(300 + attempt * 400)).await;
+            if !is_current_generation(&app, generation) {
+                return;
+            }
+            match open_speaker_stream(device_id.clone()).await {
+                Ok(next) => {
+                    reopened = Some(next);
+                    break;
+                }
+                Err(e) => warn!("Reopening system audio failed: {}", e),
+            }
+        }
+
+        match reopened {
+            Some(next) => {
+                sr = next.sample_rate();
+                stream = next;
+                let _ = app.emit("capture-device-restored", sr);
+            }
+            None => break,
+        }
+    }
+
+    if !is_current_generation(&app, generation) {
+        return;
+    }
+    let state = app.state::<crate::AudioState>();
+    if let Ok(mut guard) = state.stream_task.lock() {
+        *guard = None;
+    }
+    if let Ok(mut capturing) = state.is_capturing.lock() {
+        *capturing = false;
+    }
+    state.live_caption_frames.store(false, Ordering::Relaxed);
+    let _ = app.emit(
+        "capture-error",
+        "System audio device was lost. Check your output device and start Listen again.",
+    );
 }
 
 // VAD-enabled capture - OPTIMIZED for real-time speech detection
@@ -755,24 +841,22 @@ pub async fn stop_system_audio_capture(app: AppHandle) -> Result<(), String> {
             .lock()
             .map_err(|e| format!("Failed to acquire task lock: {}", e))?;
 
+        // Invalidates any start still opening a device and any device-recovery loop.
+        state.capture_generation.fetch_add(1, Ordering::AcqRel);
         if let Some(task) = guard.take() {
             task.abort();
         }
     }
 
-    // LONGER delay for proper cleanup (300ms instead of 150ms)
-    tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
-
-    // Mark as not capturing
     *state
         .is_capturing
         .lock()
         .map_err(|e| format!("Failed to update capturing state: {}", e))? = false;
 
-    // Additional cleanup delay (CRITICAL for mic indicator)
-    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+    // CoreAudio needs a moment to release the tap before the mic indicator clears.
+    #[cfg(target_os = "macos")]
+    tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
 
-    // Emit stopped event
     let _ = app.emit("capture-stopped", ());
     Ok(())
 }
@@ -814,7 +898,8 @@ pub async fn request_system_audio_access(app: AppHandle) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         app.shell()
-            .command("ms-settings:sound")
+            .command("explorer.exe")
+            .args(["ms-settings:sound"])
             .spawn()
             .map_err(|e| {
                 error!("Failed to open sound settings: {}", e);
@@ -823,11 +908,14 @@ pub async fn request_system_audio_access(app: AppHandle) -> Result<(), String> {
     }
     #[cfg(target_os = "linux")]
     {
-        let commands = ["pavucontrol", "gnome-control-center sound"];
+        let commands: [(&str, &[&str]); 2] = [
+            ("pavucontrol", &[]),
+            ("gnome-control-center", &["sound"]),
+        ];
         let mut opened = false;
 
-        for cmd in &commands {
-            if app.shell().command(cmd).spawn().is_ok() {
+        for (cmd, args) in &commands {
+            if app.shell().command(*cmd).args(*args).spawn().is_ok() {
                 opened = true;
                 break;
             }

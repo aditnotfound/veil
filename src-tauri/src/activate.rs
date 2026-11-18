@@ -376,13 +376,14 @@ pub async fn validate_license_api(app: AppHandle) -> Result<ValidateResponse, St
 
 #[tauri::command]
 pub fn mask_license_key_cmd(license_key: String) -> String {
-    if license_key.len() <= 8 {
-        return "*".repeat(license_key.len());
+    let chars: Vec<char> = license_key.chars().collect();
+    if chars.len() <= 8 {
+        return "*".repeat(chars.len());
     }
 
-    let first_four = &license_key[..4];
-    let last_four = &license_key[license_key.len() - 4..];
-    let middle_stars = "*".repeat(license_key.len() - 8);
+    let first_four: String = chars[..4].iter().collect();
+    let last_four: String = chars[chars.len() - 4..].iter().collect();
+    let middle_stars = "*".repeat(chars.len() - 8);
 
     format!("{}{}{}", first_four, middle_stars, last_four)
 }

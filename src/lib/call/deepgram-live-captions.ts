@@ -113,7 +113,13 @@ export class DeepgramLiveCaptions {
       const piece = message.channel?.alternatives?.[0]?.transcript;
       if (typeof piece !== "string") return;
       const text = piece.trim();
-      if (message.is_final && text) this.committed.push(text);
+      if (message.is_final && text) {
+        this.committed.push(text);
+        let length = this.committed.reduce((total, part) => total + part.length + 1, 0);
+        while (this.committed.length > 1 && length > 2000) {
+          length -= this.committed.shift()!.length + 1;
+        }
+      }
       const caption = [...this.committed, ...(!message.is_final && text ? [text] : [])]
         .join(" ").trim();
       if (caption) this.onCaption(caption);

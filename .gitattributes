@@ -1,0 +1,3 @@
+# Migration SQL is embedded into the binary and checksummed by tauri-plugin-sql;
+# any line-ending conversion makes existing databases refuse to open.
+src-tauri/src/db/migrations/*.sql -text

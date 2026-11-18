@@ -1,5 +1,5 @@
 import { captureSessionPreparation } from "@/lib/knowledge/preparation-store";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useLayoutEffect, useState, useCallback, useRef } from "react";
 import { useWindowResize, useGlobalShortcuts } from ".";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -47,9 +47,15 @@ import { selectedModelName, withModelOverride } from "@/lib/call/deep-provider";
 import { previousSuggestionContext } from "@/lib/call/prompt-evidence";
 import { persistCallDerivedData } from "@/lib/call/persist-derived";
 import { callKnowledgeQuery } from "@/lib/call/knowledge-query";
+import { getKnowledgeSettings } from "@/lib/knowledge/retrieve";
+import { isStrongClue, memoryFromCallsEnabled, recall, saveMemories, warmRecall, type RecallHit } from "@/lib/memory";
+import { buildCallMemorySnapshot, callMemoryInputs, CALL_MEMORY_PROMPT, parseCallMemory } from "@/lib/memory/consolidate";
 export type { AutoResponseMode } from "@/lib/call/decision-router";
 
 type LiveCaptionStream = DeepgramLiveCaptions | OpenAILiveCaptions;
+
+const CLUE_DEBOUNCE_MS = 300;
+const CLUE_MIN_RELEVANCE = 2.6;
 
 // VAD Configuration interface matching Rust
 export interface VadConfig {
@@ -379,11 +385,16 @@ export function useSystemAudio() {
     setSessionPlannerStatus("Off");
   }, [sessionPlannerEnabled, sessionPlannerAvailable]);
 
+  const plannerMilestoneRef = useRef({ sessionId: "", milestone: 0 });
   const launchSessionPlanner = useCallback((utterance: FinalUtterance) => {
     if (!sessionPlannerEnabled) return;
     const utterances = callCoreRef.current.orderedUtterances();
-    if (utterances.length < SESSION_PLANNER_MILESTONE ||
-        utterances.length % SESSION_PLANNER_MILESTONE !== 0) return;
+    // Overlapping turns can skip an exact multiple, so fire on crossing one.
+    const milestone = Math.floor(utterances.length / SESSION_PLANNER_MILESTONE);
+    const last = plannerMilestoneRef.current;
+    const lastMilestone = last.sessionId === utterance.sessionId ? last.milestone : 0;
+    if (milestone < 1 || milestone <= lastMilestone) return;
+    plannerMilestoneRef.current = { sessionId: utterance.sessionId, milestone };
     const snapshot = buildSessionPlannerSnapshot(utterances);
     const job = sessionPlannerRef.current.begin();
     if (!snapshot || !job || job.sessionId !== utterance.sessionId) return;
@@ -445,11 +456,57 @@ export function useSystemAudio() {
   }, [sessionPlannerEnabled, allAiProviders, selectedAIProvider]);
   const launchSessionPlannerRef = useRef(launchSessionPlanner);
   useEffect(() => { launchSessionPlannerRef.current = launchSessionPlanner; }, [launchSessionPlanner]);
+
+  const [memoryStatus, setMemoryStatus] = useState("");
+  /** Distills a finished call into memories in the background; never blocks Listen. */
+  const rememberCall = useCallback((sessionId: string, utterances: FinalUtterance[]) => {
+    if (!memoryFromCallsEnabled() || !getKnowledgeSettings().enabled) return;
+    const snapshot = buildCallMemorySnapshot(utterances);
+    if (!snapshot) return;
+    const startedAt = Math.min(...utterances.map((utterance) => utterance.startedAt));
+    setMemoryStatus("Saving memories from the last call…");
+    void (async () => {
+      try {
+        const usePluelyAPI = await shouldUsePluelyAPI();
+        const provider = allAiProviders.find((item) => item.id === selectedAIProvider.provider);
+        if (!usePluelyAPI && !provider) throw new Error("AI provider config not found");
+        let response = "";
+        for await (const chunk of fetchAIResponse({
+          provider: usePluelyAPI ? undefined : provider,
+          selectedProvider: selectedAIProvider,
+          systemPrompt: CALL_MEMORY_PROMPT,
+          history: [],
+          historyOrder: "chronological",
+          knowledgeMode: "none",
+          responseProfile: "deep",
+          userMessage: snapshot,
+          imagesBase64: [],
+          signal: AbortSignal.timeout(120_000),
+        })) {
+          response += chunk;
+          if (response.length > 30_000) throw new Error("Call memory response exceeded its limit");
+        }
+        const inputs = callMemoryInputs(parseCallMemory(response), sessionId, Number.isFinite(startedAt) ? startedAt : Date.now());
+        const saved = await saveMemories(inputs);
+        const merged = saved.filter((item) => item.merged).length;
+        setMemoryStatus(`Remembered ${saved.length - merged} new things from the last call${merged ? ` (${merged} refreshed)` : ""}`);
+      } catch (memoryError) {
+        console.warn("Could not save call memories:", memoryError);
+        setMemoryStatus("Memories from the last call could not be saved");
+      }
+    })();
+  }, [allAiProviders, selectedAIProvider]);
+  const rememberCallRef = useRef(rememberCall);
+  useEffect(() => { rememberCallRef.current = rememberCall; }, [rememberCall]);
+
+  useEffect(() => { void warmRecall().catch(() => {}); }, []);
   const micLiveRef = useRef<LiveCaptionStream | null>(null);
   const systemSpeechActiveRef = useRef(false);
   const micSpeechActiveRef = useRef(false);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isSavingRef = useRef<boolean>(false);
+  const pendingSaveRef = useRef<Parameters<typeof saveConversation>[0] | null>(null);
+  const sessionGenerationRef = useRef(0);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   const toggleLiveCaptions = useCallback(async () => {
@@ -482,17 +539,48 @@ export function useSystemAudio() {
     }
     let disposed = false;
     let unlisten: (() => void) | undefined;
+    let micRetry: ReturnType<typeof setTimeout> | undefined;
+    const MAX_CAPTION_RETRIES = 5;
+    const failures = { system: 0, mic: 0 };
+    let systemRetryAt = 0;
+    const scheduleRetry = (source: "system" | "mic") => {
+      failures[source] += 1;
+      if (failures[source] > MAX_CAPTION_RETRIES) return;
+      const wait = Math.min(15_000, 1000 * 2 ** (failures[source] - 1));
+      if (source === "system") {
+        systemRetryAt = Date.now() + wait;
+      } else {
+        clearTimeout(micRetry);
+        micRetry = setTimeout(() => {
+          if (!disposed && !micLiveRef.current) micLiveRef.current = createStream(16000, "mic");
+        }, wait);
+      }
+    };
     const createStream = (sampleRate: number, source: "system" | "mic") => {
       const status = source === "system" ? setSystemLiveStatus : setMicLiveStatus;
       const caption = source === "system" ? setPartialSystemCaption : setPartialMicCaption;
+      const ref = source === "system" ? systemLiveRef : micLiveRef;
+      let stream: typeof ref.current = null;
+      let failed = false;
       try {
         const onCaption = (text: string) => { if (!disposed) caption(text); };
-        const onStatus = (value: CaptionStatus) => { if (!disposed) status(value); };
-        return liveCaptionProvider === "openai"
+        const onStatus = (value: CaptionStatus) => {
+          if (disposed) return;
+          status(value);
+          if (value === "live") failures[source] = 0;
+          if (value === "fallback" && !failed) {
+            failed = true;
+            if (stream && ref.current === stream) ref.current = null;
+            scheduleRetry(source);
+          }
+        };
+        stream = liveCaptionProvider === "openai"
           ? new OpenAILiveCaptions(liveCaptionKey, sampleRate, onCaption, onStatus, tauriFetch)
           : new DeepgramLiveCaptions(liveCaptionKey, deepgramLiveModel, sampleRate, onCaption, onStatus);
+        return failed ? null : stream;
       } catch {
         status("fallback");
+        scheduleRetry(source);
         return null;
       }
     };
@@ -503,9 +591,17 @@ export function useSystemAudio() {
         "call-system-audio-frame", (event) => {
           if (disposed) return;
           const { sampleRate, pcmBase64 } = event.payload;
-          if (!systemLiveRef.current) systemLiveRef.current = createStream(sampleRate, "system");
+          if (!systemLiveRef.current) {
+            if (failures.system > MAX_CAPTION_RETRIES || Date.now() < systemRetryAt) return;
+            systemLiveRef.current = createStream(sampleRate, "system");
+          }
           try { systemLiveRef.current?.sendPcm(pcm16FromBase64(pcmBase64)); }
-          catch { setSystemLiveStatus("fallback"); systemLiveRef.current?.close(); }
+          catch {
+            setSystemLiveStatus("fallback");
+            systemLiveRef.current?.close();
+            systemLiveRef.current = null;
+            scheduleRetry("system");
+          }
         }
       );
       if (disposed) stop();
@@ -514,6 +610,7 @@ export function useSystemAudio() {
     subscribe().catch(() => { if (!disposed) setSystemLiveStatus("fallback"); });
     return () => {
       disposed = true;
+      clearTimeout(micRetry);
       unlisten?.();
       systemLiveRef.current?.close();
       micLiveRef.current?.close();
@@ -522,6 +619,32 @@ export function useSystemAudio() {
     };
   }, [capturing, liveCaptionsEnabled, liveCaptionProvider, liveCaptionKey,
     deepgramLiveModel, micEnabled]);
+
+  // Clues are display-only hints from what the other side is saying. Answers
+  // always retrieve again from the finished question, so a wrong guess on a
+  // half-spoken sentence never reaches the model.
+  const [recallClues, setRecallClues] = useState<RecallHit[]>([]);
+  const clueSequenceRef = useRef(0);
+  useEffect(() => {
+    if (!capturing) {
+      clueSequenceRef.current += 1;
+      setRecallClues([]);
+      return;
+    }
+    const partial = partialSystemCaption.trim();
+    const text = partial || latestSystemTurn?.text.trim() || "";
+    if (text.split(/\s+/).length < 5 || !getKnowledgeSettings().enabled) return;
+    const sequence = ++clueSequenceRef.current;
+    const timer = setTimeout(() => {
+      recall(text.slice(-500), 4)
+        .then((hits) => {
+          if (sequence !== clueSequenceRef.current) return;
+          setRecallClues(hits.filter((hit) => isStrongClue(hit, CLUE_MIN_RELEVANCE)).slice(0, 3));
+        })
+        .catch(() => {});
+    }, partial ? CLUE_DEBOUNCE_MS : 0);
+    return () => clearTimeout(timer);
+  }, [capturing, partialSystemCaption, latestSystemTurn]);
 
   const handleMicFrame = useCallback((samples: Float32Array) => {
     micLiveRef.current?.sendPcm(pcm16FromFloat(samples));
@@ -701,306 +824,296 @@ export function useSystemAudio() {
   }, []);
 
   // Handle single speech detection event (both VAD and continuous modes)
-  useEffect(() => {
-    let speechUnlisten: (() => void) | undefined;
-    let speechStartUnlisten: (() => void) | undefined;
-    let disposed = false;
+  // Handlers are rebuilt every render so they always see current settings;
+  // the native listeners subscribe once, so no segment is lost while resubscribing.
+  const handleSpeechStart = () => {
+    if (!capturing || !callCoreRef.current.activeSessionId) return;
+    systemSpeechActiveRef.current = true;
+    // Do not cancel a visible answer on speculative speech. The finalized
+    // turn below decides whether this is a new question and then cancels
+    // obsolete work if needed.
+  };
 
-    const setupEventListener = async () => {
+  const handleSpeechSegment = async (event: { payload: unknown }) => {
+    let sttStarted = false;
+    let sessionId = "";
+    let timing: CallTurnTiming | null = null;
+    let audioReadyPerf = 0;
+    try {
+      if (!capturing) return;
+      sessionId = callCoreRef.current.activeSessionId;
+      if (!sessionId) return;
+      const sttSessionSignal = sttSessionControllerRef.current.signal;
+      const payload = event.payload as {
+        sequence: number;
+        audioBase64: string;
+        speechEndedAt?: number;
+      };
+      const sequence = payload.sequence;
+      if (!Number.isSafeInteger(sequence) || sequence < 1 ||
+          typeof payload.audioBase64 !== "string") return;
+      if (seenSystemSequencesRef.current.has(sequence)) return;
+      seenSystemSequencesRef.current.add(sequence);
+      systemSpeechActiveRef.current = false;
+      if (systemLiveRef.current instanceof OpenAILiveCaptions) systemLiveRef.current.commit();
+      const emittedAt = Date.now();
+      audioReadyPerf = performance.now();
+      timing = {
+        turnId: `${sessionId}:system:${sequence}`,
+        sessionId,
+        source: "system",
+        audioReadyAt: emittedAt,
+        status: "stt_error",
+      };
+
+      const base64Audio = payload.audioBase64;
+      // Convert to blob
+      const binaryString = atob(base64Audio);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      const audioBlob = new Blob([bytes], { type: "audio/wav" });
+      const startedAt = estimateWavStartAt(emittedAt, bytes);
+      const endedAt = Number.isSafeInteger(payload.speechEndedAt) &&
+        payload.speechEndedAt! >= startedAt && payload.speechEndedAt! <= emittedAt
+        ? payload.speechEndedAt!
+        : emittedAt;
+
+      const usePluelyAPI = await shouldUsePluelyAPI();
+      if (!selectedSttProvider.provider && !usePluelyAPI) {
+        setError("No speech provider selected.");
+        return;
+      }
+
+      const providerConfig = allSttProviders.find(
+        (p) => p.id === selectedSttProvider.provider
+      );
+
+      if (!providerConfig && !usePluelyAPI) {
+        setError("Speech provider config not found.");
+        return;
+      }
+
+      sttStarted = true;
+      pendingSttRef.current += 1;
+      setIsProcessing(true);
+
       try {
-        const unlistenStart = await listen("speech-start", () => {
-          if (!capturing || !callCoreRef.current.activeSessionId) return;
-          systemSpeechActiveRef.current = true;
-          // Do not cancel a visible answer on speculative speech. The finalized
-          // turn below decides whether this is a new question and then cancels
-          // obsolete work if needed.
+        const transcribe = (signal: AbortSignal) => fetchSTT({
+          provider: providerConfig,
+          selectedProvider: selectedSttProvider,
+          audio: audioBlob,
+          signal,
         });
-        if (disposed) unlistenStart();
-        else speechStartUnlisten = unlistenStart;
-        const unlisten = await listen("call-speech-segment", async (event) => {
-          let sttStarted = false;
-          let sessionId = "";
-          let timing: CallTurnTiming | null = null;
-          let audioReadyPerf = 0;
+        // A second request can reduce long OpenAI tail delays for short
+        // clips. It has an extra provider cost, and is canceled on stop.
+        const hedge = !usePluelyAPI && selectedSttProvider.provider === "openai-whisper" &&
+          isShortWavForHedge(bytes);
+        const transcription = await (hedge ? transcribeWithHedge : transcribeWithRetry)(
+          transcribe, sttSessionSignal, timeoutForWav(bytes)
+        );
+
+        timing.audioToSttMs = performance.now() - audioReadyPerf;
+        sttStarted = false;
+        if (callCoreRef.current.activeSessionId === sessionId) {
+          pendingSttRef.current = Math.max(0, pendingSttRef.current - 1);
+          setIsProcessing(pendingSttRef.current > 0);
+        }
+        if (callCoreRef.current.activeSessionId !== sessionId) {
+          timing.status = "canceled";
+          return;
+        }
+
+        if (transcription.trim()) {
+          if (!systemSpeechActiveRef.current) {
+            setPartialSystemCaption("");
+            if (systemLiveRef.current instanceof OpenAILiveCaptions) systemLiveRef.current.resetDisplay();
+          }
+          timing.status = "transcribed";
+          const utterance: FinalUtterance = {
+            id: `${sessionId}:system:${sequence}`,
+            sessionId,
+            source: "system",
+            sequence,
+            startedAt,
+            endedAt,
+            text: transcription.trim(),
+          };
+          if (!callCoreRef.current.appendFinal(utterance)) return;
+          setSessionUtterances(callCoreRef.current.orderedUtterances());
+          let utterancePersisted = true;
           try {
-            if (!capturing) return;
-            sessionId = callCoreRef.current.activeSessionId;
-            if (!sessionId) return;
-            const sttSessionSignal = sttSessionControllerRef.current.signal;
-            const payload = event.payload as {
-              sequence: number;
-              audioBase64: string;
-              speechEndedAt?: number;
-            };
-            const sequence = payload.sequence;
-            if (!Number.isSafeInteger(sequence) || sequence < 1 ||
-                typeof payload.audioBase64 !== "string") return;
-            if (seenSystemSequencesRef.current.has(sequence)) return;
-            seenSystemSequencesRef.current.add(sequence);
-            systemSpeechActiveRef.current = false;
-            if (systemLiveRef.current instanceof OpenAILiveCaptions) systemLiveRef.current.commit();
-            const emittedAt = Date.now();
-            audioReadyPerf = performance.now();
-            timing = {
-              turnId: `${sessionId}:system:${sequence}`,
-              sessionId,
-              source: "system",
-              audioReadyAt: emittedAt,
-              status: "stt_error",
-            };
-
-            const base64Audio = payload.audioBase64;
-            // Convert to blob
-            const binaryString = atob(base64Audio);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-              bytes[i] = binaryString.charCodeAt(i);
-            }
-            const audioBlob = new Blob([bytes], { type: "audio/wav" });
-            const startedAt = estimateWavStartAt(emittedAt, bytes);
-            const endedAt = Number.isSafeInteger(payload.speechEndedAt) &&
-              payload.speechEndedAt! >= startedAt && payload.speechEndedAt! <= emittedAt
-              ? payload.speechEndedAt!
-              : emittedAt;
-
-            const usePluelyAPI = await shouldUsePluelyAPI();
-            if (!selectedSttProvider.provider && !usePluelyAPI) {
-              setError("No speech provider selected.");
-              return;
-            }
-
-            const providerConfig = allSttProviders.find(
-              (p) => p.id === selectedSttProvider.provider
+            await appendCallUtterance(utterance);
+          } catch (persistError) {
+            utterancePersisted = false;
+            console.error("Failed to save call utterance:", persistError);
+            setError("Transcript could not be saved locally.");
+            timing.status = "storage_error";
+          }
+          if (callCoreRef.current.activeSessionId !== sessionId) {
+            timing.status = "canceled";
+            return;
+          }
+          const currentAutoMode = autoResponseModeRef.current;
+          const decision: CallDecision = routeSequencedSystemTurn(
+            utterance, currentAutoMode, lastAnsweredRef.current,
+            latestRoutedAnswerSequenceRef.current
+          );
+          const superseded = decision.reason === "superseded";
+          if (utterancePersisted) {
+            void Promise.resolve()
+              .then(() => launchJevShadowRef.current(utterance, currentAutoMode, superseded))
+              .catch((error) => console.error("JEV shadow request failed:", error));
+          }
+          if (decision.action === "short_answer") {
+            latestRoutedAnswerSequenceRef.current = Math.max(
+              latestRoutedAnswerSequenceRef.current, sequence
             );
-
-            if (!providerConfig && !usePluelyAPI) {
-              setError("Speech provider config not found.");
+          }
+          if (utterancePersisted) {
+            const [ledgerResult, decisionResult] = await persistCallDerivedData(
+              () => appendCallSessionLedger(utterance),
+              () => saveCallTurnDecision(sessionId, decision, currentAutoMode, Date.now()),
+            );
+            if (callCoreRef.current.activeSessionId !== sessionId) {
+              timing.status = "canceled";
               return;
             }
+            if (ledgerResult.status === "rejected") {
+              console.error("Failed to update candidate session ledger:", ledgerResult.reason);
+              setError("Transcript saved, but candidate session memory could not be updated.");
+            }
+            if (decisionResult.status === "rejected") {
+              console.error("Failed to save call decision:", decisionResult.reason);
+            }
+            launchSessionPlannerRef.current(utterance);
+          }
+          // A newer question may have completed while local writes were pending.
+          if (shouldSkipDelayedDecision(decision, sequence, latestRoutedAnswerSequenceRef.current)) return;
+          const latestSystemSequence = sequence >= latestCompletedSystemSequenceRef.current;
+          latestCompletedSystemSequenceRef.current = Math.max(
+            latestCompletedSystemSequenceRef.current, sequence
+          );
+          if (shouldCancelAnswerForDecision(decision)) {
+            cancelAnswerForSpeech();
+          }
+          if (startedAt >= latestShownStartedAtRef.current) {
+            latestShownStartedAtRef.current = startedAt;
+            // Dual-source label: system audio path is always "System"
+            setLastTranscription(`System: ${transcription.trim()}`);
+          }
+          if (latestSystemSequence) setLatestSystemTurn(utterance);
 
-            sttStarted = true;
-            pendingSttRef.current += 1;
-            setIsProcessing(true);
-
+          if (decision.action === "short_answer" && !manualAnswerInFlightRef.current) {
+            const paceMs = AUTO_RESPONSE_PACE_MS[autoResponsePace];
+            const job = callCoreRef.current.beginAnswer();
+            const attemptStartedAt = Date.now();
+            let firstChunkAt: number | null = null;
+            let outcome: CallAnswerAttempt["outcome"] = "failed";
             try {
-              const transcribe = (signal: AbortSignal) => fetchSTT({
-                provider: providerConfig,
-                selectedProvider: selectedSttProvider,
-                audio: audioBlob,
-                signal,
-              });
-              // A second request can reduce long OpenAI tail delays for short
-              // clips. It has an extra provider cost, and is canceled on stop.
-              const hedge = !usePluelyAPI && selectedSttProvider.provider === "openai-whisper" &&
-                isShortWavForHedge(bytes);
-              const transcription = await (hedge ? transcribeWithHedge : transcribeWithRetry)(
-                transcribe, sttSessionSignal, timeoutForWav(bytes)
-              );
-
-              timing.audioToSttMs = performance.now() - audioReadyPerf;
-              sttStarted = false;
-              if (callCoreRef.current.activeSessionId === sessionId) {
-                pendingSttRef.current = Math.max(0, pendingSttRef.current - 1);
-                setIsProcessing(pendingSttRef.current > 0);
-              }
-              if (callCoreRef.current.activeSessionId !== sessionId) {
+              try {
+                await delay(paceMs, job.signal);
+              } catch {
                 timing.status = "canceled";
+                outcome = "canceled";
                 return;
               }
-
-              if (transcription.trim()) {
-                if (!systemSpeechActiveRef.current) {
-                  setPartialSystemCaption("");
-                  if (systemLiveRef.current instanceof OpenAILiveCaptions) systemLiveRef.current.resetDisplay();
-                }
-                timing.status = "transcribed";
-                const utterance: FinalUtterance = {
-                  id: `${sessionId}:system:${sequence}`,
-                  sessionId,
-                  source: "system",
-                  sequence,
-                  startedAt,
-                  endedAt,
-                  text: transcription.trim(),
-                };
-                if (!callCoreRef.current.appendFinal(utterance)) return;
-                setSessionUtterances(callCoreRef.current.orderedUtterances());
-                let utterancePersisted = true;
-                try {
-                  await appendCallUtterance(utterance);
-                } catch (persistError) {
-                  utterancePersisted = false;
-                  console.error("Failed to save call utterance:", persistError);
-                  setError("Transcript could not be saved locally.");
-                  timing.status = "storage_error";
-                }
-                if (callCoreRef.current.activeSessionId !== sessionId) {
-                  timing.status = "canceled";
-                  return;
-                }
-                const currentAutoMode = autoResponseModeRef.current;
-                const decision: CallDecision = routeSequencedSystemTurn(
-                  utterance, currentAutoMode, lastAnsweredRef.current,
-                  latestRoutedAnswerSequenceRef.current
-                );
-                const superseded = decision.reason === "superseded";
-                if (utterancePersisted) {
-                  void Promise.resolve()
-                    .then(() => launchJevShadowRef.current(utterance, currentAutoMode, superseded))
-                    .catch((error) => console.error("JEV shadow request failed:", error));
-                }
-                if (decision.action === "short_answer") {
-                  latestRoutedAnswerSequenceRef.current = Math.max(
-                    latestRoutedAnswerSequenceRef.current, sequence
-                  );
-                }
-                if (utterancePersisted) {
-                  const [ledgerResult, decisionResult] = await persistCallDerivedData(
-                    () => appendCallSessionLedger(utterance),
-                    () => saveCallTurnDecision(sessionId, decision, currentAutoMode, Date.now()),
-                  );
-                  if (callCoreRef.current.activeSessionId !== sessionId) {
-                    timing.status = "canceled";
-                    return;
-                  }
-                  if (ledgerResult.status === "rejected") {
-                    console.error("Failed to update candidate session ledger:", ledgerResult.reason);
-                    setError("Transcript saved, but candidate session memory could not be updated.");
-                  }
-                  if (decisionResult.status === "rejected") {
-                    console.error("Failed to save call decision:", decisionResult.reason);
-                  }
-                  launchSessionPlannerRef.current(utterance);
-                }
-                // A newer question may have completed while local writes were pending.
-                if (shouldSkipDelayedDecision(decision, sequence, latestRoutedAnswerSequenceRef.current)) return;
-                const latestSystemSequence = sequence >= latestCompletedSystemSequenceRef.current;
-                latestCompletedSystemSequenceRef.current = Math.max(
-                  latestCompletedSystemSequenceRef.current, sequence
-                );
-                if (shouldCancelAnswerForDecision(decision)) {
-                  cancelAnswerForSpeech();
-                }
-                if (startedAt >= latestShownStartedAtRef.current) {
-                  latestShownStartedAtRef.current = startedAt;
-                  // Dual-source label: system audio path is always "System"
-                  setLastTranscription(`System: ${transcription.trim()}`);
-                }
-                if (latestSystemSequence) setLatestSystemTurn(utterance);
-
-                if (decision.action === "short_answer" && !manualAnswerInFlightRef.current) {
-                  const paceMs = AUTO_RESPONSE_PACE_MS[autoResponsePace];
-                  const job = callCoreRef.current.beginAnswer();
-                  const attemptStartedAt = Date.now();
-                  let firstChunkAt: number | null = null;
-                  let outcome: CallAnswerAttempt["outcome"] = "failed";
-                  try {
-                    try {
-                      await delay(paceMs, job.signal);
-                    } catch {
-                      timing.status = "canceled";
-                      outcome = "canceled";
-                      return;
-                    }
-                    if (!job.isCurrent() || autoResponseModeRef.current === "off") {
-                      timing.status = "canceled";
-                      outcome = "canceled";
-                      return;
-                    }
-                    const answerStartedPerf = performance.now();
-                    timing.waitBeforeAnswerMs = answerStartedPerf - audioReadyPerf - timing.audioToSttMs;
-
-                    const effectiveSystemPrompt = useSystemPrompt
-                      ? systemPrompt || DEFAULT_SYSTEM_PROMPT
-                      : contextContent || DEFAULT_SYSTEM_PROMPT;
-
-                    const previousMessages = callCoreRef.current.historyBefore(utterance.id);
-                    const activeGuidance = liveAnswerGuidanceRef.current;
-                    const answerPlan = selectCallAnswerPlan(transcription, effectiveSystemPrompt, activeGuidance);
-
-                    const answered = await processWithAI(
-                      transcription.trim(),
-                      answerPlan.prompt,
-                      previousMessages,
-                      job,
-                      (firstChunkPerf) => {
-                        firstChunkAt = Date.now();
-                        if (!timing) return;
-                        timing.answerToFirstChunkMs = firstChunkPerf - answerStartedPerf;
-                        timing.audioToFirstChunkMs = firstChunkPerf - audioReadyPerf;
-                      },
-                      utterance.id,
-                      answerPlan.profile
-                    );
-                    timing.answerTotalMs = performance.now() - answerStartedPerf;
-                    outcome = !job.isCurrent() ? "canceled" : answered ? "answered" : "failed";
-                    if (answered && job.isCurrent()) {
-                      lastAnsweredRef.current = {
-                        normalizedText: normalizeTurn(utterance.text),
-                        endedAt: utterance.endedAt,
-                      };
-                    }
-                    if (timing.status !== "storage_error") {
-                      timing.status = !job.isCurrent() ? "canceled" : answered ? "answered" : "answer_error";
-                    }
-                  } finally {
-                    await saveCallAnswerAttempt({
-                      turnId: utterance.id, sessionId, trigger: "automatic",
-                      startedAt: attemptStartedAt, firstChunkAt,
-                      completedAt: Date.now(), outcome,
-                    }).catch((error) => console.error("Failed to save automatic answer attempt:", error));
-                  }
-                }
-              } else {
-                if (!systemSpeechActiveRef.current) setPartialSystemCaption("");
-                setError("Received empty transcription");
+              if (!job.isCurrent() || autoResponseModeRef.current === "off") {
+                timing.status = "canceled";
+                outcome = "canceled";
+                return;
               }
-            } catch (sttError: any) {
-              if (!systemSpeechActiveRef.current) setPartialSystemCaption("");
-              if (callCoreRef.current.activeSessionId !== sessionId) return;
-              console.error("STT Error:", sttError);
-              setError(sttError.message || "Failed to transcribe audio");
-              setIsPopoverOpen(true);
-            }
-          } catch (err) {
-            setError("Failed to process speech");
-          } finally {
-            if (sttStarted && callCoreRef.current.activeSessionId === sessionId) {
-              pendingSttRef.current = Math.max(0, pendingSttRef.current - 1);
-              setIsProcessing(pendingSttRef.current > 0);
-            }
-            if (timing) {
-              await saveCallTurnTiming(timing).catch((err) =>
-                console.error("Failed to save call timing:", err)
+              const answerStartedPerf = performance.now();
+              timing.waitBeforeAnswerMs = answerStartedPerf - audioReadyPerf - timing.audioToSttMs;
+
+              const effectiveSystemPrompt = useSystemPrompt
+                ? systemPrompt || DEFAULT_SYSTEM_PROMPT
+                : contextContent || DEFAULT_SYSTEM_PROMPT;
+
+              const previousMessages = callCoreRef.current.historyBefore(utterance.id);
+              const activeGuidance = liveAnswerGuidanceRef.current;
+              const answerPlan = selectCallAnswerPlan(transcription, effectiveSystemPrompt, activeGuidance);
+
+              const answered = await processWithAI(
+                transcription.trim(),
+                answerPlan.prompt,
+                previousMessages,
+                job,
+                (firstChunkPerf) => {
+                  firstChunkAt = Date.now();
+                  if (!timing) return;
+                  timing.answerToFirstChunkMs = firstChunkPerf - answerStartedPerf;
+                  timing.audioToFirstChunkMs = firstChunkPerf - audioReadyPerf;
+                },
+                utterance.id,
+                answerPlan.profile
               );
+              timing.answerTotalMs = performance.now() - answerStartedPerf;
+              outcome = !job.isCurrent() ? "canceled" : answered ? "answered" : "failed";
+              if (answered && job.isCurrent()) {
+                lastAnsweredRef.current = {
+                  normalizedText: normalizeTurn(utterance.text),
+                  endedAt: utterance.endedAt,
+                };
+              }
+              if (timing.status !== "storage_error") {
+                timing.status = !job.isCurrent() ? "canceled" : answered ? "answered" : "answer_error";
+              }
+            } finally {
+              await saveCallAnswerAttempt({
+                turnId: utterance.id, sessionId, trigger: "automatic",
+                startedAt: attemptStartedAt, firstChunkAt,
+                completedAt: Date.now(), outcome,
+              }).catch((error) => console.error("Failed to save automatic answer attempt:", error));
             }
           }
-        });
-        if (disposed) unlisten();
-        else speechUnlisten = unlisten;
-      } catch (err) {
-        setError("Failed to setup speech listener");
+        } else {
+          if (!systemSpeechActiveRef.current) setPartialSystemCaption("");
+          setError("Received empty transcription");
+        }
+      } catch (sttError: any) {
+        if (!systemSpeechActiveRef.current) setPartialSystemCaption("");
+        if (callCoreRef.current.activeSessionId !== sessionId) return;
+        console.error("STT Error:", sttError);
+        setError(sttError.message || "Failed to transcribe audio");
+        setIsPopoverOpen(true);
       }
-    };
+    } catch (err) {
+      setError("Failed to process speech");
+    } finally {
+      if (sttStarted && callCoreRef.current.activeSessionId === sessionId) {
+        pendingSttRef.current = Math.max(0, pendingSttRef.current - 1);
+        setIsProcessing(pendingSttRef.current > 0);
+      }
+      if (timing) {
+        await saveCallTurnTiming(timing).catch((err) =>
+          console.error("Failed to save call timing:", err)
+        );
+      }
+    }
+  };
 
-    setupEventListener();
+  const speechHandlersRef = useRef({ start: handleSpeechStart, segment: handleSpeechSegment });
+  useLayoutEffect(() => {
+    speechHandlersRef.current = { start: handleSpeechStart, segment: handleSpeechSegment };
+  });
 
+  useEffect(() => {
+    let disposed = false;
+    const unlisteners: Array<() => void> = [];
+    const track = (fn: () => void) => (disposed ? fn() : unlisteners.push(fn));
+    listen("speech-start", () => speechHandlersRef.current.start())
+      .then(track)
+      .catch(() => setError("Failed to setup speech listener"));
+    listen("call-speech-segment", (event) => speechHandlersRef.current.segment(event))
+      .then(track)
+      .catch(() => setError("Failed to setup speech listener"));
     return () => {
       disposed = true;
-      if (speechUnlisten) speechUnlisten();
-      if (speechStartUnlisten) speechStartUnlisten();
+      unlisteners.forEach((fn) => fn());
     };
-  }, [
-    capturing,
-    selectedSttProvider,
-    allSttProviders,
-    autoResponseMode,
-    autoResponsePace,
-    useSystemPrompt,
-    systemPrompt,
-    contextContent,
-    cancelAnswerForSpeech,
-  ]);
+  }, []);
 
   // Context management functions
   const saveContextSettings = useCallback(
@@ -1174,7 +1287,7 @@ export function useSystemAudio() {
           ? selectedAudioDevices.output.id
           : null;
 
-      // Start a new continuous recording session
+      await invoke("stop_system_audio_capture");
       await invoke<string>("start_system_audio_capture", {
         vadConfig: vadConfig,
         deviceId: deviceId,
@@ -1709,14 +1822,21 @@ export function useSystemAudio() {
         setIsPopoverOpen(true);
         return;
       }
+      setSetupRequired(false);
 
       const isContinuous = !vadConfig.enabled;
 
       // Set up conversation
       const conversationId = generateConversationId("sysaudio");
+      const generation = ++sessionGenerationRef.current;
       await createCallSession(conversationId, Date.now());
       newSessionId = conversationId;
-      preparedContextRef.current = await captureSessionPreparation(conversationId);
+      const preparation = await captureSessionPreparation(conversationId);
+      if (sessionGenerationRef.current !== generation) {
+        await endCallSession(conversationId, Date.now()).catch(console.error);
+        return;
+      }
+      preparedContextRef.current = preparation;
       callCoreRef.current.start(conversationId);
       sttSessionControllerRef.current.abort();
       sttSessionControllerRef.current = new AbortController();
@@ -1798,7 +1918,9 @@ export function useSystemAudio() {
   }, [vadConfig, selectedAudioDevices.output.id, liveCaptionsEnabled, liveCaptionProvider, sessionPlannerEnabled, clearAttachedScreenshot]);
 
   const stopCapture = useCallback(async () => {
-            const sessionId = callCoreRef.current.activeSessionId;
+    const sessionId = callCoreRef.current.activeSessionId;
+    const finishedUtterances = callCoreRef.current.orderedUtterances();
+    sessionGenerationRef.current += 1;
     callCoreRef.current.stop();
     sttSessionControllerRef.current.abort();
     sessionPlannerRef.current.stop();
@@ -1852,9 +1974,29 @@ export function useSystemAudio() {
           console.error("Failed to end call session:", err);
           setError("Call session could not be finalized locally.");
         });
+        rememberCallRef.current(sessionId, finishedUtterances);
       }
     }
   }, [abortJevShadows, clearAttachedScreenshot]);
+
+  const stopCaptureRef = useRef(stopCapture);
+  useEffect(() => { stopCaptureRef.current = stopCapture; }, [stopCapture]);
+
+  useEffect(() => {
+    let disposed = false;
+    const unlisteners: Array<() => void> = [];
+    const track = (fn: () => void) => (disposed ? fn() : unlisteners.push(fn));
+    listen<string>("capture-error", async (event) => {
+      await stopCaptureRef.current();
+      setError(event.payload);
+      setIsPopoverOpen(true);
+    }).then(track);
+    listen("capture-device-restored", () => setError("")).then(track);
+    return () => {
+      disposed = true;
+      unlisteners.forEach((fn) => fn());
+    };
+  }, []);
 
   // Manual stop for continuous recording
   const manualStopAndSend = useCallback(async () => {
@@ -1963,16 +2105,23 @@ export function useSystemAudio() {
 
     // Debounce saves (only save 500ms after last change)
     saveTimeoutRef.current = setTimeout(async () => {
-      // Don't save if already saving (prevent concurrent saves)
+      pendingSaveRef.current = conversation;
+      // A save already running picks up the newest snapshot when it finishes.
       if (isSavingRef.current) {
         return;
       }
 
+      isSavingRef.current = true;
       try {
-        isSavingRef.current = true;
-        await saveConversation(conversation);
-      } catch (error) {
-        console.error("Failed to save system audio conversation:", error);
+        while (pendingSaveRef.current) {
+          const next = pendingSaveRef.current;
+          pendingSaveRef.current = null;
+          try {
+            await saveConversation(next);
+          } catch (error) {
+            console.error("Failed to save system audio conversation:", error);
+          }
+        }
       } finally {
         isSavingRef.current = false;
       }
@@ -1993,17 +2142,27 @@ export function useSystemAudio() {
 
   const startNewConversation = useCallback(async () => {
     const priorSessionId = callCoreRef.current.activeSessionId;
+    const priorUtterances = callCoreRef.current.orderedUtterances();
     callCoreRef.current.stop();
     sttSessionControllerRef.current.abort();
     sessionPlannerRef.current.stop();
     activeSessionPlanRef.current = null;
     abortJevShadows();
     const nextId = generateConversationId("sysaudio");
+    const generation = ++sessionGenerationRef.current;
     try {
-      if (priorSessionId) await endCallSession(priorSessionId, Date.now());
+      if (priorSessionId) {
+        await endCallSession(priorSessionId, Date.now());
+        rememberCallRef.current(priorSessionId, priorUtterances);
+      }
       if (capturing) {
         await createCallSession(nextId, Date.now());
-        preparedContextRef.current = await captureSessionPreparation(nextId);
+        const preparation = await captureSessionPreparation(nextId);
+        if (sessionGenerationRef.current !== generation) {
+          await endCallSession(nextId, Date.now()).catch(console.error);
+          return;
+        }
+        preparedContextRef.current = preparation;
         callCoreRef.current.start(nextId);
         sttSessionControllerRef.current = new AbortController();
         if (sessionPlannerEnabled) sessionPlannerRef.current.start(nextId);
@@ -2079,14 +2238,17 @@ export function useSystemAudio() {
     setIsModeSwitching(true);
     const deviceId = selectedAudioDevices.output.id !== "default"
       ? selectedAudioDevices.output.id : null;
-    const liveCaptions = liveCaptionsEnabled && selectedSttProvider.provider === "deepgram-stt";
+    const liveCaptions = liveCaptionsEnabled && Boolean(liveCaptionProvider);
     try {
       // The native task chooses VAD or manual mode only when it starts.
       // Restart that task while retaining this call session and its transcript.
+      // Manual mode records only when the user presses Start, so leave it idle.
       await invoke("stop_system_audio_capture");
-      await invoke("start_system_audio_capture", {
-        vadConfig: nextConfig, deviceId, liveCaptions,
-      });
+      if (vadEnabled) {
+        await invoke("start_system_audio_capture", {
+          vadConfig: nextConfig, deviceId, liveCaptions,
+        });
+      }
       await updateVadConfiguration(nextConfig);
       setIsContinuousMode(!vadEnabled);
       setIsRecordingInContinuousMode(false);
@@ -2106,7 +2268,7 @@ export function useSystemAudio() {
       setIsModeSwitching(false);
     }
   }, [capturing, vadConfig, selectedAudioDevices.output.id,
-      liveCaptionsEnabled, selectedSttProvider.provider, updateVadConfiguration, stopCapture]);
+      liveCaptionsEnabled, liveCaptionProvider, updateVadConfiguration, stopCapture]);
 
   useEffect(() => {
     if (capturing) {
@@ -2291,6 +2453,8 @@ export function useSystemAudio() {
     micLiveStatus,
     partialSystemCaption,
     partialMicCaption,
+    recallClues,
+    memoryStatus,
     handleMicFrame,
     attachedScreenshot,
     setAttachedScreenshot,

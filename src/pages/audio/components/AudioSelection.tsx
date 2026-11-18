@@ -13,6 +13,9 @@ import { STORAGE_KEYS } from "@/config/constants";
 import { safeLocalStorage } from "@/lib/storage";
 import { invoke } from "@tauri-apps/api/core";
 
+const SYSTEM_DEFAULT_ID = "default";
+const SYSTEM_DEFAULT_OUTPUT = { id: SYSTEM_DEFAULT_ID, name: "System default" };
+
 export const AudioSelection = () => {
   const { selectedAudioDevices, setSelectedAudioDevices } = useApp();
 
@@ -31,6 +34,11 @@ export const AudioSelection = () => {
     input: [],
     output: [],
   });
+
+  const currentDefaultOutput = devices.output.find((d) => d.is_default);
+  const systemDefaultLabel = currentDefaultOutput
+    ? `System default (${currentDefaultOutput.name})`
+    : "System default";
 
   // Save devices to localStorage
   const saveToStorage = (newDevices: typeof selectedAudioDevices) => {
@@ -72,13 +80,12 @@ export const AudioSelection = () => {
       const currentInputExists = inputDevices.some(
         (d) => d.id === selectedAudioDevices.input.id
       );
-      const currentOutputExists = outputDevices.some(
-        (d) => d.id === selectedAudioDevices.output.id
-      );
+      const currentOutputExists =
+        selectedAudioDevices.output.id === SYSTEM_DEFAULT_ID ||
+        outputDevices.some((d) => d.id === selectedAudioDevices.output.id);
 
       if (!currentInputExists || !currentOutputExists) {
         const defaultInput = inputDevices?.find((d) => d?.is_default);
-        const defaultOutput = outputDevices?.find((d) => d?.is_default);
 
         const newDevices = {
           input: currentInputExists
@@ -89,10 +96,7 @@ export const AudioSelection = () => {
               },
           output: currentOutputExists
             ? selectedAudioDevices.output
-            : {
-                id: defaultOutput?.id || outputDevices[0]?.id || "",
-                name: defaultOutput?.name || outputDevices[0]?.name || "",
-              },
+            : SYSTEM_DEFAULT_OUTPUT,
         };
 
         setSelectedAudioDevices(newDevices);
@@ -112,7 +116,10 @@ export const AudioSelection = () => {
   // Handle device selection changes
   const handleDeviceChange = (type: "input" | "output", deviceId: string) => {
     const deviceList = type === "input" ? devices.input : devices.output;
-    const selectedDevice = deviceList.find((d) => d.id === deviceId);
+    const selectedDevice =
+      type === "output" && deviceId === SYSTEM_DEFAULT_ID
+        ? SYSTEM_DEFAULT_OUTPUT
+        : deviceList.find((d) => d.id === deviceId);
 
     if (!selectedDevice) return;
 
@@ -252,6 +259,8 @@ export const AudioSelection = () => {
                         ? "Loading output devices..."
                         : devices?.output?.length === 0
                         ? "No output devices found"
+                        : selectedAudioDevices.output.id === SYSTEM_DEFAULT_ID
+                        ? systemDefaultLabel
                         : devices?.output?.find(
                             (output) =>
                               output?.id === selectedAudioDevices.output.id
@@ -266,6 +275,14 @@ export const AudioSelection = () => {
                   </div>
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value={SYSTEM_DEFAULT_ID}>
+                    <div className="flex items-center gap-2">
+                      <HeadphonesIcon className="size-4" />
+                      <div className="font-medium truncate">
+                        {systemDefaultLabel}
+                      </div>
+                    </div>
+                  </SelectItem>
                   {devices?.output?.map((output) => (
                     <SelectItem key={output?.id} value={output?.id}>
                       <div className="flex items-center gap-2">

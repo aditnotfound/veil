@@ -115,5 +115,11 @@ pub fn migrations() -> Vec<Migration> {
             sql: include_str!("migrations/knowledge-preparation.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 19,
+            description: "create_layered_memory",
+            sql: include_str!("migrations/layered-memory.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }

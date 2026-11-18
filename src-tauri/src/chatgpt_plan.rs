@@ -335,7 +335,7 @@ pub async fn chatgpt_plan_response(app: AppHandle, request_id: String, model: St
         return Err(format!("ChatGPT plan request failed ({})", response.status()));
     }
     let mut stream = response.bytes_stream();
-    let mut buffer = String::new();
+    let mut buffer: Vec<u8> = Vec::new();
     let mut completed = false;
     use futures_util::StreamExt;
     loop {
@@ -345,9 +345,10 @@ pub async fn chatgpt_plan_response(app: AppHandle, request_id: String, model: St
         };
         let Some(part) = part else { break; };
         let part = part.map_err(|_| "ChatGPT response stream interrupted")?;
-        buffer.push_str(&String::from_utf8_lossy(&part));
-        while let Some(end) = buffer.find('\n') {
-            let line = buffer.drain(..=end).collect::<String>();
+        buffer.extend_from_slice(&part);
+        while let Some(end) = buffer.iter().position(|&byte| byte == b'\n') {
+            let bytes = buffer.drain(..=end).collect::<Vec<u8>>();
+            let line = String::from_utf8_lossy(&bytes);
             let Some(data) = line.trim().strip_prefix("data: ") else { continue; };
             let Ok(event) = serde_json::from_str::<Value>(data) else { continue; };
             match event["type"].as_str() {

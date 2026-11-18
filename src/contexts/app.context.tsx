@@ -41,6 +41,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -56,6 +57,37 @@ const selectedProviderKey = {
   stt: STORAGE_KEYS.SELECTED_STT_PROVIDER,
 };
 const SOL_FAST_CONFIGURATION_KEY = "veil_sol_fast_configuration_2026_10_02";
+
+type SelectedAudioDevices = {
+  input: { id: string; name: string };
+  output: { id: string; name: string };
+};
+
+const SYSTEM_DEFAULT_OUTPUT = { id: "default", name: "System default" };
+
+// Older builds pinned whatever output was default on first launch, so plugging
+// in headphones left loopback capture listening to silent speakers.
+const readSelectedAudioDevices = (): SelectedAudioDevices => {
+  let devices: SelectedAudioDevices = {
+    input: { id: "", name: "" },
+    output: SYSTEM_DEFAULT_OUTPUT,
+  };
+  const saved = safeLocalStorage.getItem(STORAGE_KEYS.SELECTED_AUDIO_DEVICES);
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      if (parsed && typeof parsed === "object") devices = { ...devices, ...parsed };
+    } catch {
+      console.warn("Failed to parse selected audio devices");
+    }
+  }
+  if (!safeLocalStorage.getItem(STORAGE_KEYS.OUTPUT_FOLLOWS_DEFAULT_MIGRATED)) {
+    devices = { ...devices, output: SYSTEM_DEFAULT_OUTPUT };
+    safeLocalStorage.setItem(STORAGE_KEYS.SELECTED_AUDIO_DEVICES, JSON.stringify(devices));
+    safeLocalStorage.setItem(STORAGE_KEYS.OUTPUT_FOLLOWS_DEFAULT_MIGRATED, "true");
+  }
+  return devices;
+};
 
 const validateAndProcessCurlProviders = (
   providersJson: string,
@@ -113,26 +145,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
   }, []);
 
-  const [selectedAudioDevices, setSelectedAudioDevices] = useState<{
-    input: { id: string; name: string };
-    output: { id: string; name: string };
-  }>(() => {
-    const savedDevices = safeLocalStorage.getItem(
-      STORAGE_KEYS.SELECTED_AUDIO_DEVICES
-    );
-    if (savedDevices) {
-      try {
-        return JSON.parse(savedDevices);
-      } catch {
-        // Return default on parse error
-      }
-    }
-
-    return {
-      input: { id: "", name: "" },
-      output: { id: "", name: "" },
-    };
-  });
+  const [selectedAudioDevices, setSelectedAudioDevices] =
+    useState<SelectedAudioDevices>(readSelectedAudioDevices);
 
   // AI Providers
   const [customAiProviders, setCustomAiProviders] = useState<TYPE_PROVIDER[]>(
@@ -416,19 +430,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
 
     // Load selected audio devices
-    const savedAudioDevices = safeLocalStorage.getItem(
-      STORAGE_KEYS.SELECTED_AUDIO_DEVICES
-    );
-    if (savedAudioDevices) {
-      try {
-        const parsed = JSON.parse(savedAudioDevices);
-        if (parsed && typeof parsed === "object") {
-          setSelectedAudioDevices(parsed);
-        }
-      } catch {
-        console.warn("Failed to parse selected audio devices");
-      }
-    }
+    setSelectedAudioDevices(readSelectedAudioDevices());
   };
 
   const updateCursor = (type: CursorType | undefined) => {
@@ -623,16 +625,16 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   }, [pluelyApiEnabled, selectedAIProvider.provider]);
 
   // Computed all AI providers
-  const allAiProviders: TYPE_PROVIDER[] = [
-    ...AI_PROVIDERS,
-    ...customAiProviders,
-  ];
+  const allAiProviders: TYPE_PROVIDER[] = useMemo(
+    () => [...AI_PROVIDERS, ...customAiProviders],
+    [customAiProviders]
+  );
 
   // Computed all STT providers
-  const allSttProviders: TYPE_PROVIDER[] = [
-    ...SPEECH_TO_TEXT_PROVIDERS,
-    ...customSttProviders,
-  ];
+  const allSttProviders: TYPE_PROVIDER[] = useMemo(
+    () => [...SPEECH_TO_TEXT_PROVIDERS, ...customSttProviders],
+    [customSttProviders]
+  );
 
   const onSetSelectedAIProvider = ({
     provider,
